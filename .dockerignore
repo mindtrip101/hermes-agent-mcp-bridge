@@ -1,0 +1,11 @@
+.venv
+.git
+.pytest_cache
+data
+secrets
+tests
+**/__pycache__
+*.pem
+*.sqlite3
+.env
+config.yaml

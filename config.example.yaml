@@ -1,0 +1,64 @@
+# Copy to config.yaml. Paths are relative to this file.
+# issuer and resource are exact strings. Do not add a trailing slash.
+# ChatGPT and other clients send `resource` back unchanged.
+
+server:
+  bind_host: 127.0.0.1
+  bind_port: 8765
+  issuer: https://bridge.example.com
+  resource: https://bridge.example.com/mcp
+  allowed_hosts: []
+  allow_non_loopback_bind: false
+  dev_mode: false
+
+consent:
+  # public: the approval page is on the issuer origin and asks for the owner password.
+  # tailnet: the approval page is served on consent.bind_port and is not mounted on the public port.
+  exposure: public
+  bind_host: 127.0.0.1
+  bind_port: 8766
+  # public_url: https://consent.example.com
+  owner_password_file: secrets/owner_password
+
+hermes:
+  backend: http
+  base_url: http://127.0.0.1:8642
+  api_key_file: secrets/hermes_api_key
+  allow_non_loopback: false
+  poll_interval_seconds: 1
+  run_timeout_seconds: 300
+  instructions: ""
+  # Used only when backend is cli. The prompt is written to a file, never placed in argv.
+  # cli_argv:
+  #   - hermes
+  #   - chat
+  #   - -Q
+  #   - --source
+  #   - tool
+  #   - --query-file
+  #   - "{prompt_file}"
+
+tokens:
+  access_ttl_seconds: 900
+  refresh_ttl_seconds: 2592000
+  code_ttl_seconds: 120
+  clock_skew_seconds: 30
+
+limits:
+  max_prompt_chars: 8000
+  max_output_chars: 32000
+  max_queue: 8
+  asks_per_hour: 30
+  polls_per_minute: 120
+  sync_ask_enabled: false
+  sync_timeout_seconds: 30
+  job_retention_hours: 168
+  worker_interval_seconds: 0.5
+
+redirects:
+  # Private-use schemes whose authority contains a dot. Clear the list to refuse them.
+  private_schemes:
+    - cursor
+
+data_dir: data
+subject: owner

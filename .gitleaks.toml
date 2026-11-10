@@ -1,0 +1,31 @@
+title = "hermes-agent-mcp-bridge"
+
+[extend]
+useDefault = false
+
+[allowlist]
+description = "Pattern file, bytecode, and local secret directories."
+paths = [
+  '''(^|/)\.gitleaks\.toml$''',
+  '''(^|/)\.git/''',
+  '''__pycache__''',
+  '''\.pytest_cache''',
+  '''(^|/)\.venv/''',
+  '''(^|/)data/''',
+  '''(^|/)secrets/''',
+]
+
+[[rules]]
+id = "forbidden-identity"
+description = "Private deployment identifiers that must not ship in this tree"
+regex = '''(?i)(\.ts\.(?:net)|alls(?:park)|tail062(?:bb)|mind(?:trip)|sp(?:lan)|fix(?:256)|click(?:up)|out(?:look))'''
+
+[[rules]]
+id = "private-key"
+description = "PEM private key"
+regex = '''-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----'''
+
+[[rules]]
+id = "email-address"
+description = "Email address"
+regex = '''[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'''

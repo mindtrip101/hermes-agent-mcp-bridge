@@ -1,0 +1,24 @@
+# Test-shaped compose file. Do not point it at a live data directory.
+# Run `init` on the host first so ./data and ./secrets exist, then:
+#   BRIDGE_UID=$(id -u) BRIDGE_GID=$(id -g) docker compose up --build
+# The process runs as that uid so it can read mode-0600 files created on the host.
+
+services:
+  bridge:
+    build: .
+    user: "${BRIDGE_UID:-10001}:${BRIDGE_GID:-10001}"
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - ./secrets:/config/secrets:ro
+      - ./data:/data
+    environment:
+      HERMES_BRIDGE_DATA_DIR: /data
+      HERMES_BRIDGE_OWNER_PASSWORD_FILE: /config/secrets/owner_password
+      HERMES_BRIDGE_HERMES_API_KEY_FILE: /config/secrets/hermes_api_key
+      # The Hermes API stays on the host. Opt in, and keep the URL off the public internet.
+      HERMES_BRIDGE_HERMES_BASE_URL: http://host.docker.internal:8642
+      HERMES_BRIDGE_HERMES_ALLOW_NON_LOOPBACK: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
