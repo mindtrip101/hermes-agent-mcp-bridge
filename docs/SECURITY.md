@@ -2,6 +2,25 @@
 
 The bridge is a prompt queue in front of a local agent, with OAuth in front of the queue. It is not a sandbox.
 
+## Reporting a vulnerability
+
+Report vulnerabilities privately with [GitHub private vulnerability reporting](https://github.com/mindtrip101/hermes-agent-mcp-bridge/security/advisories/new).
+
+Do not report a vulnerability in a public issue, a pull request, or a discussion.
+
+Include:
+
+- The bridge version or commit, and the Hermes Agent version
+- How the bridge is exposed (loopback, Tailscale Serve, Funnel, or another proxy)
+- What an attacker gains, and the steps that show it
+- Config and logs with tokens, keys, client secrets, hostnames, and personal data removed
+
+Supported versions are the latest `main` and the `0.1.x` line.
+
+This is a best-effort response. The maintainers aim to acknowledge a report within 7 days.
+
+## Threat model
+
 ## Threat model
 
 You are the owner of one machine. A remote MCP client, and anyone who can drive that client, can submit prompts that the local Hermes agent will run with whatever tools you have enabled on the agent. The bridge does not see those tools and cannot take them away.

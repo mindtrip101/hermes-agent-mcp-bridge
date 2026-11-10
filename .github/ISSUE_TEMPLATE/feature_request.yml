@@ -1,0 +1,38 @@
+name: Feature request
+description: A change that would make the bridge more useful
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you cannot do today, and who it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What you want the bridge to do.
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client affected
+      options:
+        - Grok Bot
+        - ChatGPT
+        - Claude
+        - Cursor
+        - other
+        - not specific to one client
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways you considered solving this, including doing nothing.
+    validations:
+      required: false
