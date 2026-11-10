@@ -1,0 +1,97 @@
+name: Bug report
+description: Something failed while running the bridge
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove tokens, keys, client secrets, hostnames, and personal data before you submit.
+
+        If this is a security vulnerability, do not use this form. Report it privately at https://github.com/mindtrip101/hermes-agent-mcp-bridge/security/advisories/new
+  - type: input
+    id: bridge-version
+    attributes:
+      label: Bridge version or commit
+      description: Package version or the git commit you are running.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: hermes-version
+    attributes:
+      label: Hermes Agent version
+      placeholder: 0.21.x
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend mode
+      options:
+        - runs API
+        - CLI
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: MCP client
+      options:
+        - Grok Bot
+        - ChatGPT
+        - Claude
+        - Cursor
+        - other
+    validations:
+      required: true
+  - type: dropdown
+    id: exposure
+    attributes:
+      label: Exposure
+      options:
+        - Tailscale Serve
+        - Funnel
+        - other
+    validations:
+      required: true
+  - type: input
+    id: os-install
+    attributes:
+      label: OS and install method
+      description: Operating system, and whether you installed with Docker or pip.
+      placeholder: Ubuntu 24.04, pip
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, from a clean start if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+    validations:
+      required: true
+  - type: checkboxes
+    id: log-privacy
+    attributes:
+      label: Log privacy
+      description: Required. Do not paste a log until this is true.
+      options:
+        - label: I removed tokens, keys, client secrets, hostnames and personal data from logs
+          required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Redacted logs only.
+      render: shell

@@ -2,6 +2,12 @@
 
 Bugs and patches are welcome. Please keep the tree free of live hostnames, account names, tokens, and private keys.
 
+## Where to report
+
+- Bugs and feature requests go to [Issues](https://github.com/mindtrip101/hermes-agent-mcp-bridge/issues).
+- Questions and setup help go to [Discussions](https://github.com/mindtrip101/hermes-agent-mcp-bridge/discussions).
+- Security vulnerabilities go to [private vulnerability reporting](https://github.com/mindtrip101/hermes-agent-mcp-bridge/security/advisories/new). Do not open a public issue for those. See [docs/SECURITY.md](docs/SECURITY.md).
+
 ## Develop
 
 ```bash

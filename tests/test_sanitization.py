@@ -21,6 +21,9 @@ IDENTITY = [
     "172.28" + ".9.64",
     "/home/" + "mind" + "trip",
 ]
+# Docs link to this repository. Drop that URL before the scan so the org slug
+# is not treated as a private identifier. Home paths still fail.
+_PUBLIC_REPO = "github.com/" + "mind" + "trip" + "101/hermes-agent-mcp-bridge"
 PEM = "-----BEGIN " + "PRIVATE KEY-----"
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 SKIP_PARTS = {".git", ".venv", "__pycache__", ".pytest_cache", "data", "secrets"}
@@ -46,7 +49,7 @@ def test_tree_has_no_private_identifiers_or_secrets() -> None:
         text = path.read_text(encoding="utf-8", errors="replace")
         rel = path.relative_to(ROOT).as_posix()
         if rel != ".gitleaks.toml":
-            lowered = text.lower()
+            lowered = text.lower().replace(_PUBLIC_REPO, "")
             for needle in IDENTITY:
                 if needle.lower() in lowered:
                     offenders.append(f"{rel}: {needle}")

@@ -18,7 +18,7 @@ paths = [
 [[rules]]
 id = "forbidden-identity"
 description = "Private deployment identifiers that must not ship in this tree"
-regex = '''(?i)(\.ts\.(?:net)|alls(?:park)|tail062(?:bb)|mind(?:trip)|sp(?:lan)|fix(?:256)|click(?:up)|out(?:look))'''
+regex = '''(?i)(\.ts\.(?:net)|alls(?:park)|tail062(?:bb)|mind(?:trip)\b|sp(?:lan)|fix(?:256)|click(?:up)|out(?:look))'''
 
 [[rules]]
 id = "private-key"

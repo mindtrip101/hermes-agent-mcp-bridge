@@ -91,10 +91,16 @@ cp config.example.yaml config.yaml
 - [docs/SETUP.md](docs/SETUP.md) — install, Hermes API, Tailscale, connect, verify
 - [docs/CLIENTS.md](docs/CLIENTS.md) — Grok Bot, ChatGPT, Claude, Cursor, and the ChatGPT test checklist
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — config file and environment variables
-- [docs/SECURITY.md](docs/SECURITY.md) — threat model, allowlist, consent, keys
+- [docs/SECURITY.md](docs/SECURITY.md) — threat model, allowlist, consent, keys, private vulnerability reports
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — `invalid_request`, redirect mismatch, stale client id
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [CHANGELOG.md](CHANGELOG.md)
+
+## Help
+
+- Bugs and feature requests: [Issues](https://github.com/mindtrip101/hermes-agent-mcp-bridge/issues)
+- Questions and setup help: [Discussions](https://github.com/mindtrip101/hermes-agent-mcp-bridge/discussions)
+- Security vulnerabilities: [report privately](https://github.com/mindtrip101/hermes-agent-mcp-bridge/security/advisories/new). Do not open a public issue.
 
 ## Tests
 
