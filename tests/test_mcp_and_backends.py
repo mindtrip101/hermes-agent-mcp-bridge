@@ -44,7 +44,7 @@ def test_tools_are_allowlisted_and_jobs_round_trip(client: TestClient, fake: Fak
     token = str(login(client, client_id=client_id, redirect_uri=CHATGPT_REDIRECT)[0]["access_token"])
     listed = _rpc(client, token, "tools/list")
     names = [item["name"] for item in listed.json()["result"]["tools"]]
-    assert names == ["ask_hermes", "get_job", "bridge_status"]
+    assert names == ["ask_hermes", "get_job", "bridge_status", "recent_calls"]
     unknown = _rpc(client, token, "tools/call", {"name": "shell", "arguments": {"command": "id"}})
     assert unknown.json()["result"]["isError"] is True
 
@@ -61,7 +61,9 @@ def test_tools_are_allowlisted_and_jobs_round_trip(client: TestClient, fake: Fak
         time.sleep(0.05)
     assert payload["result"] == "answer-text"
     status = _rpc(client, token, "tools/call", {"name": "bridge_status", "arguments": {}})
-    assert status.json()["result"]["structuredContent"]["hermes_reachable"] is True
+    reported = status.json()["result"]["structuredContent"]
+    assert reported["hermes_reachable"] is True
+    assert set(reported) == {"version", "queue_depth", "hermes_reachable", "sync_ask_enabled"}
     assert fake.prompts == ["hello"]
 
 

@@ -1,0 +1,32 @@
+name: bridge-doctor
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      online:
+        description: Issuer origin of a running bridge. Leave empty for the offline config check.
+        required: false
+        type: string
+
+jobs:
+  doctor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Offline config check
+        env:
+          PYTHONPATH: apps/bridge-doctor
+        run: python -m hermes_bridge_doctor check --config config.example.yaml
+      - name: Online check
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.online != '' }}
+        env:
+          PYTHONPATH: apps/bridge-doctor
+          HERMES_BRIDGE_DOCTOR_BASE_URL: ${{ inputs.online }}
+          HERMES_BRIDGE_OWNER_PASSWORD: ${{ secrets.HERMES_BRIDGE_OWNER_PASSWORD }}
+        run: python -m hermes_bridge_doctor check --config config.example.yaml --online "$HERMES_BRIDGE_DOCTOR_BASE_URL"

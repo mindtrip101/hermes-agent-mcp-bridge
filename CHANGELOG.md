@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- MCP tool `recent_calls` records tool name, outcome, and job id. It does not store prompts.
+- `GET /status` and `GET /status.json` show bridge health and recent tool-call metadata, with job ids omitted. `HERMES_BRIDGE_STATUS_TOKEN` locks those routes when set.
+- Companion apps under `apps/`: PR reviewer, bridge doctor, and status board. They are private builds and are not submitted to a marketplace.
+
 ## 0.1.0
 
 Initial public release.

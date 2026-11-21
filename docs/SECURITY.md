@@ -56,9 +56,14 @@ The MCP server registers only:
 - `ask_hermes`
 - `get_job`
 - `bridge_status`
+- `recent_calls`
 - `ask_hermes_sync` when `limits.sync_ask_enabled` is true
 
 Any other `tools/call` name returns an error result. Job ids are unguessable, and `get_job` only returns a job for the token's subject. There is one subject, `owner` by default.
+
+`recent_calls` stores the tool name, a fixed error code, a timestamp, and the job id when the call has one. It does not store the prompt or the reply. The bridge keeps the newest 200 rows.
+
+`GET /status` and `GET /status.json` repeat `bridge_status` plus that metadata, and they leave job ids out. Set `HERMES_BRIDGE_STATUS_TOKEN` to require `Authorization: Bearer` on those two routes. When the variable is unset, the routes are reachable by anyone who can reach the bridge, which includes a funnel in front of the loopback port. The routes do not accept a token in the query string.
 
 Prompts are length-capped. The queue is depth-capped. Asks are rate-limited. One worker runs one agent call at a time. Output stored in SQLite is truncated to `max_output_chars`. Job rows are deleted after `job_retention_hours`.
 

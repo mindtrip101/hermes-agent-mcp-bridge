@@ -1,0 +1,23 @@
+[project]
+name = "hermes-pr-reviewer"
+version = "0.1.0"
+description = "Pull request reviewer that asks a Hermes agent through the MCP bridge."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+  "cryptography>=42",
+  "httpx>=0.27",
+  "pyjwt[crypto]>=2.9",
+]
+
+[project.scripts]
+hermes-pr-reviewer = "hermes_pr_reviewer.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hermes_pr_reviewer*"]

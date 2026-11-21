@@ -35,15 +35,15 @@ include = ["hermes_agent_mcp_bridge*"]
 [tool.ruff]
 line-length = 150
 target-version = "py311"
-src = ["."]
+src = [".", "apps"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "apps/pr-reviewer/tests", "apps/bridge-doctor/tests", "apps/status-board/tests"]
 addopts = "-q"
-pythonpath = ["."]
+pythonpath = [".", "apps/pr-reviewer", "apps/bridge-doctor", "apps/status-board"]
 filterwarnings = [
   "ignore:Using `httpx` with `starlette.testclient`:starlette.exceptions.StarletteDeprecationWarning",
 ]
