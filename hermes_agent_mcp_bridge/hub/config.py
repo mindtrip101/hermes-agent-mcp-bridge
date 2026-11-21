@@ -13,7 +13,6 @@ from hermes_agent_mcp_bridge.errors import ConfigError
 
 _LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
 _PROVIDERS = frozenset({"openai_compatible", "anthropic", "grok", "cursor"})
-_STUB_PROVIDERS = frozenset({"grok", "cursor"})
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 _MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$")
 _ENV = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
@@ -37,6 +36,8 @@ class AgentProfile(BaseModel):
     allow_private_base_url: bool = False
     account: str = ""
     max_tokens: int = 1024
+    # None means unlimited. 0 means the profile is never called.
+    daily_request_budget: int | None = None
     # OpenAI-compatible servers disagree on the token-cap field. Local servers
     # want max_tokens. Some hosted OpenAI models want max_completion_tokens.
     token_param: str = "max_tokens"
@@ -57,8 +58,6 @@ class AgentProfile(BaseModel):
             raise ConfigError("max_tokens must be between 16 and 8192")
         if self.token_param not in _TOKEN_PARAMS:
             raise ConfigError("token_param must be max_tokens, max_completion_tokens, or omit")
-        if self.provider != "openai_compatible" and self.token_param != "max_tokens":
-            raise ConfigError("token_param is only used by openai_compatible profiles")
         if self.api_key_env and not _ENV.match(self.api_key_env):
             raise ConfigError("api_key_env must be an environment variable name")
         if len(self.tools_allowed) > 32 or len(set(self.tools_allowed)) != len(self.tools_allowed):
@@ -70,12 +69,21 @@ class AgentProfile(BaseModel):
             raise ConfigError("grok account must be personal or business")
         if self.account and self.provider != "grok":
             raise ConfigError("account is only valid on the grok provider")
-        if self.provider in _STUB_PROVIDERS:
-            if self.base_url or self.api_key_env or self.allow_private_base_url:
-                raise ConfigError("stub providers do not take a base_url or an API key")
+        if self.daily_request_budget is not None and not 0 <= self.daily_request_budget <= 100_000:
+            raise ConfigError("daily_request_budget is out of range")
+        inbox = self.provider == "cursor" or (self.provider == "grok" and not self.api_key_env)
+        if inbox:
+            if self.base_url or self.allow_private_base_url or (self.provider == "cursor" and self.api_key_env):
+                raise ConfigError("an inbox profile does not take a base_url or an API key")
+            if self.token_param != "max_tokens":
+                raise ConfigError("token_param is only used by openai-compatible calls")
             return self
+        if self.provider not in {"openai_compatible", "grok"} and self.token_param != "max_tokens":
+            raise ConfigError("token_param is only used by openai-compatible calls")
         if self.provider == "anthropic" and not self.base_url:
             self.base_url = "https://api.anthropic.com"
+        if self.provider == "grok" and not self.base_url:
+            self.base_url = "https://api.x.ai/v1"
         if not self.base_url:
             raise ConfigError("this provider requires base_url")
         self.base_url = _endpoint(self.base_url, allow_private=self.allow_private_base_url)
@@ -101,6 +109,8 @@ class HubSettings(BaseModel):
     policy: str = "prefer_cheap"
     strong_cost_tier: int = 3
     request_timeout_seconds: float = 60
+    # Ceiling for delegate_task's optional wait_seconds. 0 disables waiting.
+    max_wait_seconds: float = 30
     max_task_chars: int = 8000
     max_output_chars: int = 32_000
     agents: list[AgentProfile] = Field(default_factory=list)
@@ -113,6 +123,8 @@ class HubSettings(BaseModel):
             raise ConfigError("strong_cost_tier must be between 0 and 5")
         if not 1 <= self.request_timeout_seconds <= 120:
             raise ConfigError("hub request_timeout_seconds must be between 1 and 120")
+        if not 0 <= self.max_wait_seconds <= 120:
+            raise ConfigError("hub max_wait_seconds must be between 0 and 120")
         if not 1 <= self.max_task_chars <= 100_000:
             raise ConfigError("hub max_task_chars out of range")
         if not 1 <= self.max_output_chars <= 200_000:

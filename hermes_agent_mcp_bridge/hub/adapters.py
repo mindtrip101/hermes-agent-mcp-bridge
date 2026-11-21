@@ -1,4 +1,4 @@
-"""Provider calls. OpenAI-compatible and Anthropic are live. Grok Bot and Cursor are stubs."""
+"""Provider calls. OpenAI-compatible (including xAI), Anthropic, and inbox profiles."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ class ProviderAdapter(Protocol):
 
 
 class OpenAICompatibleAdapter:
-    """POST {base_url}/chat/completions. Covers OpenAI and local servers."""
+    """POST {base_url}/chat/completions. Covers OpenAI, xAI, and local servers."""
 
     def __init__(self, *, timeout: float, transport: httpx.BaseTransport | None) -> None:
         self._timeout = timeout
@@ -92,7 +92,9 @@ def build_adapters(*, timeout: float, transport: httpx.BaseTransport | None) -> 
     return {
         "openai_compatible": openai,
         "anthropic": anthropic,
-        "grok": StubAdapter("grok"),
+        # xAI's API is the OpenAI chat-completions shape. A grok profile with
+        # no api_key_env is an inbox and is never passed to this adapter.
+        "grok": openai,
         "cursor": StubAdapter("cursor"),
     }
 

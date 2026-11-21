@@ -88,6 +88,7 @@ def build_runtime(
     )
     if settings.hub.enabled:
         runtime.hub = Hub.open(settings.hub, data_dir=data, secrets=secrets, transport=hub_transport)
+        runtime.worker.set_hub_step(runtime.hub.run_once)
     return runtime
 
 

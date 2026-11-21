@@ -90,14 +90,15 @@ Loopback matching ignores the port and treats `localhost`, `127.0.0.1`, and `::1
 
 ## hub
 
-Off unless `enabled` is true. When it is on, the bridge registers `list_agents`, `delegate_task`, and `task_status` in addition to the Hermes tools. `delegate_task` counts toward `asks_per_hour`. `list_agents` and `task_status` count toward `polls_per_minute`.
+Off unless `enabled` is true. When it is on, the bridge registers `list_agents`, `delegate_task`, `task_status`, and `complete_task` in addition to the Hermes tools. `delegate_task` and `complete_task` count toward `asks_per_hour`. `list_agents` and `task_status` count toward `polls_per_minute`. The Hermes job worker also runs queued hub tasks.
 
 | Field | Default | Meaning |
 |---|---|---|
 | `enabled` | false | Register the hub tools. |
 | `policy` | `prefer_cheap` | The only policy. Lowest `cost_tier` among profiles the hub can call. |
 | `strong_cost_tier` | `3` | A task with `strength: strong` is routed only to runnable profiles at or above this tier. 0–5. |
-| `request_timeout_seconds` | `60` | 1–120. One provider call. There is no fallback if it fails. |
+| `request_timeout_seconds` | `60` | 1–120. One provider call. A timeout is recorded and the next eligible profile is tried. |
+| `max_wait_seconds` | `30` | 0–120. Ceiling for `delegate_task`'s `wait_seconds`. 0 returns as soon as the task is queued. |
 | `max_task_chars` | `8000` | Reject a longer task. |
 | `max_output_chars` | `32000` | Truncate the stored reply. |
 
@@ -108,21 +109,22 @@ Each entry in `agents` is a profile:
 | Field | Meaning |
 |---|---|
 | `name` | Lowercase slug, unique. This is the `agent` and `from_agent` value. |
-| `provider` | `openai_compatible`, `anthropic`, `grok`, or `cursor`. Only the first two are called. |
-| `model` | Model name sent to a runnable provider. Unused for `grok` and `cursor`. |
+| `provider` | `openai_compatible`, `anthropic`, `grok`, or `cursor`. |
+| `model` | Model name sent to a push provider. For an inbox profile it is a label. |
 | `system_prompt` | Optional. 4000 characters at most. Sent with the task. |
 | `tools_allowed` | Tool names the profile is allowed to advertise. This version does not execute tools and does not send the list to the provider. |
 | `cost_tier` | 0–5. Lower is cheaper. The cheap path picks the lowest tier. |
-| `base_url` | Required for `openai_compatible` (include `/v1`). Optional for Anthropic, default `https://api.anthropic.com`. Forbidden on stubs. |
-| `api_key_env` | Name of the environment variable that holds the key. Empty is allowed for a loopback or private OpenAI-compatible URL. Required for Anthropic and for any non-local OpenAI-compatible URL. |
+| `base_url` | Required for `openai_compatible` (include `/v1`). Optional for Anthropic, default `https://api.anthropic.com`. Optional for a grok profile that has `api_key_env`, default `https://api.x.ai/v1`. Forbidden on inbox profiles. |
+| `api_key_env` | Name of the environment variable that holds the key. Empty is allowed for a loopback or private OpenAI-compatible URL, and it makes a `grok` profile an inbox. Required for Anthropic, for any non-local OpenAI-compatible URL, and for an outbound grok profile. Use `XAI_API_KEY_PERSONAL` and `XAI_API_KEY_BUSINESS` for the two xAI accounts. |
 | `allow_private_base_url` | Allow an `http` URL whose host is a private or link-local IP. Use this for a model server on the LAN. |
-| `account` | `personal` or `business`, and only on `provider: grok`. |
+| `account` | `personal` or `business`, and only on `provider: grok`. It labels which account the profile is for. The key still comes from `api_key_env`. |
 | `max_tokens` | 16–8192, default 1024. |
-| `token_param` | `max_tokens` (default, local servers), `max_completion_tokens` (some hosted OpenAI models), or `omit`. OpenAI-compatible profiles only. |
+| `token_param` | `max_tokens` (default, local servers and xAI), `max_completion_tokens` (some hosted OpenAI models), or `omit`. Push OpenAI-compatible profiles, including outbound grok. |
+| `daily_request_budget` | Optional UTC-day cap on provider calls for this profile. Omit it for no cap. `0` means the profile is never called. |
 
 `http` base URLs must be loopback, or a private IP with `allow_private_base_url`. `https` base URLs are allowed. The hub appends `/chat/completions` or `/v1/messages`. Do not put that path in `base_url`.
 
-A `grok` or `cursor` profile is listed by `list_agents` with `runnable: false`. `delegate_task` to that name records an `unsupported` task and does not make a network call.
+A `cursor` profile, and a `grok` profile with no `api_key_env`, is an inbox. `delegate_task` stores it as `waiting`. The client claims it with `complete_task` (omit `result` to claim, send `result` to finish). A grok profile with `api_key_env` is called like any other OpenAI-compatible endpoint.
 
 ## data_dir and subject
 

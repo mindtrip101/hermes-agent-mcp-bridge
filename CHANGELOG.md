@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-- Opt-in agent hub. Profiles can target an OpenAI-compatible endpoint (OpenAI, Ollama, vLLM, llama.cpp) or Anthropic. `delegate_task` uses the cheapest runnable profile unless the task sets `strength` to `strong` or names a profile. Grok Bot (personal and business) and Cursor profiles are listed and are not called. The tools `list_agents`, `delegate_task`, and `task_status` are registered only when `hub.enabled` is true.
+- Hub tasks run on the Hermes job worker. `delegate_task` returns a task id immediately. `wait_seconds` can wait up to `hub.max_wait_seconds`. `task_status` polls.
+- A failed or timed-out provider call is tried on the next eligible profile. Attempts are stored on the task.
+- A `grok` profile with `api_key_env` calls the xAI chat-completions API. `XAI_API_KEY_PERSONAL` and `XAI_API_KEY_BUSINESS` keep the two accounts apart. A grok profile with no key, and every `cursor` profile, is an inbox finished with `complete_task`.
+- Optional `daily_request_budget` on a profile. Routing skips a profile that has used its UTC-day cap.
 - MCP tool `recent_calls` records tool name, outcome, and job id. It does not store prompts.
 - `GET /status` and `GET /status.json` show bridge health and recent tool-call metadata, with job ids omitted. `HERMES_BRIDGE_STATUS_TOKEN` locks those routes when set.
 - Companion apps under `apps/`: PR reviewer, bridge doctor, and status board. They are private builds and are not submitted to a marketplace.

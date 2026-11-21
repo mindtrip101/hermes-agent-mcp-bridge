@@ -23,7 +23,7 @@ from hermes_agent_mcp_bridge.hub.adapters import (
 from hermes_agent_mcp_bridge.hub.config import AgentProfile, HubSettings
 from hermes_agent_mcp_bridge.hub.errors import AdapterError, HubError
 from hermes_agent_mcp_bridge.hub.router import route
-from hermes_agent_mcp_bridge.hub.service import Hub
+from hermes_agent_mcp_bridge.hub.service import Hub, ToolResult
 from hermes_agent_mcp_bridge.mcp_rpc import tools
 from tests.conftest import ISSUER, PASSWORD, login, make_settings, register_client
 
@@ -289,6 +289,14 @@ def _transport(handler: object) -> httpx.MockTransport:
     return httpx.MockTransport(handler)  # type: ignore[arg-type]
 
 
+def _settle(hub: Hub, owner: str, arguments: dict[str, object]) -> ToolResult:
+    queued = hub.call("delegate_task", owner, arguments)
+    if queued.payload.get("status") == "queued":
+        assert hub.run_once() is True
+        return hub.call("task_status", owner, {"task_id": queued.payload["task_id"]})
+    return queued
+
+
 def test_delegate_uses_the_cheap_profile_and_keeps_the_inbox(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "127.0.0.1"
@@ -312,10 +320,15 @@ def test_delegate_uses_the_cheap_profile_and_keeps_the_inbox(tmp_path: Path) -> 
         assert by_name["cursor"]["runnable"] is False
         assert "11434" not in encoded
         assert "OPENAI_API_KEY" not in encoded
-        result = hub.call("delegate_task", "owner", {"task": "summarize"})
-        assert result.is_error is False
+        queued = hub.call("delegate_task", "owner", {"task": "summarize"})
+        assert queued.is_error is False
+        assert queued.payload["status"] == "queued"
+        assert "result" not in queued.payload
+        assert hub.run_once() is True
+        result = hub.call("task_status", "owner", {"task_id": queued.payload["task_id"]})
         assert result.payload["agent"] == "local"
         assert result.payload["result"] == "local-answer"
+        assert result.payload["attempts"][0]["status"] == "succeeded"
         status = hub.call("task_status", "owner", {"task_id": result.payload["task_id"]})
         assert status.payload["result"] == "local-answer"
         with pytest.raises(HubError) as hidden:
@@ -348,11 +361,11 @@ def test_delegate_strong_from_agent_and_scrub(tmp_path: Path, monkeypatch: pytes
         transport=_transport(handler),
     )
     try:
-        strong = hub.call("delegate_task", "owner", {"task": "review", "strength": "strong"})
+        strong = _settle(hub, "owner", {"task": "review", "strength": "strong"})
         assert strong.payload["agent"] == "anthropic"
         assert strong.payload["result"] == "strong-answer"
-        handed = hub.call(
-            "delegate_task",
+        handed = _settle(
+            hub,
             "owner",
             {"task": "rewrite", "from_agent": "local"},
         )
@@ -380,12 +393,21 @@ def test_delegate_to_a_stub_is_stored_and_not_called(tmp_path: Path) -> None:
     hub = Hub.open(sample_settings(), data_dir=tmp_path, secrets=[], transport=_transport(handler))
     try:
         result = hub.call("delegate_task", "owner", {"task": "ping", "agent": "cursor"})
-        assert result.is_error is True
-        assert result.payload["status"] == "unsupported"
-        assert result.payload["error"]["code"] == "provider_stub"
-        assert "no outbound adapter" in result.payload["error"]["detail"]
+        assert result.is_error is False
+        assert result.payload["status"] == "waiting"
+        assert result.payload["agent"] == "cursor"
+        claimed = hub.call("complete_task", "owner", {"task_id": result.payload["task_id"]})
+        assert claimed.payload["status"] == "claimed"
+        done = hub.call(
+            "complete_task",
+            "owner",
+            {"task_id": result.payload["task_id"], "result": "patched"},
+        )
+        assert done.is_error is False
+        assert done.payload["status"] == "succeeded"
+        assert done.payload["result"] == "patched"
         status = hub.call("task_status", "owner", {"task_id": result.payload["task_id"]})
-        assert status.payload["status"] == "unsupported"
+        assert status.payload["status"] == "succeeded"
     finally:
         hub.close()
 
@@ -410,8 +432,10 @@ def test_restart_marks_a_running_task_interrupted(tmp_path: Path) -> None:
         model="llama3.1",
         cost_tier=0,
         strength="any",
+        requested_agent="",
         route_reason="test",
         task_text="pending",
+        status="running",
     )
     hub.close()
     again = Hub.open(sample_settings(), data_dir=tmp_path, secrets=[], transport=None)
@@ -434,7 +458,7 @@ def test_reply_is_truncated(tmp_path: Path) -> None:
         transport=_transport(handler),
     )
     try:
-        result = hub.call("delegate_task", "owner", {"task": "hi", "agent": "local"})
+        result = _settle(hub, "owner", {"task": "hi", "agent": "local"})
         assert result.payload["result"] == "hello"
         assert result.payload["truncated"] is True
     finally:
@@ -447,10 +471,11 @@ def test_unexpected_provider_exception_is_stored_without_its_text(tmp_path: Path
 
     hub = Hub.open(sample_settings(), data_dir=tmp_path, secrets=[], transport=_transport(handler))
     try:
-        result = hub.call("delegate_task", "owner", {"task": "hi", "agent": "local"})
+        result = _settle(hub, "owner", {"task": "hi", "agent": "local"})
         assert result.payload["status"] == "failed"
         assert result.payload["error"]["code"] == "provider_error"
         assert OPENAI_KEY not in json.dumps(result.payload)
+        assert all("boom" not in item["error_code"] for item in result.payload["attempts"])
     finally:
         hub.close()
 
@@ -463,7 +488,7 @@ def test_provider_error_body_is_not_returned(tmp_path: Path, monkeypatch: pytest
 
     hub = Hub.open(sample_settings(), data_dir=tmp_path, secrets=[OPENAI_KEY], transport=_transport(handler))
     try:
-        result = hub.call("delegate_task", "owner", {"task": "hi", "agent": "openai"})
+        result = _settle(hub, "owner", {"task": "hi", "agent": "openai"})
         assert result.is_error is True
         assert result.payload["error"]["code"] == "provider_error"
         assert OPENAI_KEY not in json.dumps(result.payload)
@@ -512,7 +537,7 @@ def test_config_rejects_stub_endpoints_duplicates_and_pasted_keys(tmp_path: Path
         "hub:\n  agents:\n    - name: grok-personal\n      provider: grok\n      model: grok\n"
         "      account: personal\n      base_url: https://example.invalid\n",
     )
-    with pytest.raises(ConfigError, match="stub providers"):
+    with pytest.raises(ConfigError, match="inbox profile"):
         load_settings(stub)
     duplicate = _config(
         tmp_path,
@@ -558,7 +583,10 @@ def test_example_config_loads_with_the_hub_disabled(monkeypatch: pytest.MonkeyPa
     ]
     assert settings.hub.agents[1].token_param == "max_completion_tokens"
     assert settings.hub.agents[3].account == "personal"
+    assert settings.hub.agents[3].api_key_env == "XAI_API_KEY_PERSONAL"
+    assert settings.hub.agents[3].base_url == "https://api.x.ai/v1"
     assert settings.hub.agents[4].account == "business"
+    assert settings.hub.agents[4].api_key_env == "XAI_API_KEY_BUSINESS"
 
 
 def test_hub_tools_stay_unregistered_by_default(runtime: object) -> None:
@@ -587,6 +615,7 @@ def test_tool_order_when_sync_and_hub_are_on(tmp_path: Path, fake: object) -> No
             "list_agents",
             "delegate_task",
             "task_status",
+            "complete_task",
         ]
     finally:
         if runtime.hub is not None:
@@ -630,12 +659,12 @@ def test_mcp_delegate_round_trip(tmp_path: Path, fake: object) -> None:
             token = str(login(http, client_id=client_id, redirect_uri=CHATGPT_REDIRECT)[0]["access_token"])
             names = [item["name"] for item in _rpc(http, token, "tools/list").json()["result"]["tools"]]
             assert names[:4] == ["ask_hermes", "get_job", "bridge_status", "recent_calls"]
-            assert names[-3:] == ["list_agents", "delegate_task", "task_status"]
+            assert names[-4:] == ["list_agents", "delegate_task", "task_status", "complete_task"]
             delegated = _rpc(
                 http,
                 token,
                 "tools/call",
-                {"name": "delegate_task", "arguments": {"task": "summarize"}},
+                {"name": "delegate_task", "arguments": {"task": "summarize", "wait_seconds": 5}},
             )
             payload = delegated.json()["result"]
             assert payload["isError"] is False
@@ -643,16 +672,24 @@ def test_mcp_delegate_round_trip(tmp_path: Path, fake: object) -> None:
             task_id = payload["structuredContent"]["task_id"]
             status = _rpc(http, token, "tools/call", {"name": "task_status", "arguments": {"task_id": task_id}})
             assert status.json()["result"]["structuredContent"]["agent"] == "local"
-            stub = _rpc(
+            waiting = _rpc(
                 http,
                 token,
                 "tools/call",
                 {"name": "delegate_task", "arguments": {"task": "ping", "agent": "grok-personal"}},
             )
-            stub_body = stub.json()["result"]
-            assert stub_body["isError"] is True
-            assert stub_body["structuredContent"]["error"]["code"] == "provider_stub"
-            assert "personal" in stub_body["structuredContent"]["error"]["detail"]
+            waiting_body = waiting.json()["result"]["structuredContent"]
+            assert waiting_body["status"] == "waiting"
+            finished = _rpc(
+                http,
+                token,
+                "tools/call",
+                {
+                    "name": "complete_task",
+                    "arguments": {"task_id": waiting_body["task_id"], "result": "done by grok"},
+                },
+            )
+            assert finished.json()["result"]["structuredContent"]["result"] == "done by grok"
             asked = _rpc(http, token, "tools/call", {"name": "ask_hermes", "arguments": {"prompt": "hello"}})
             assert asked.json()["result"]["structuredContent"]["status"] == "queued"
     finally:
@@ -661,3 +698,135 @@ def test_mcp_delegate_round_trip(tmp_path: Path, fake: object) -> None:
         if runtime.hub is not None:
             runtime.hub.close()
         runtime.store.close()
+
+
+def test_failover_tries_the_next_profile_and_records_attempts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", OPENAI_KEY)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "127.0.0.1":
+            return httpx.Response(500, text="local down")
+        if request.url.host == "api.openai.com":
+            return httpx.Response(200, json={"choices": [{"message": {"content": "from-openai"}}]})
+        raise AssertionError(request.url.host)
+
+    hub = Hub.open(sample_settings(), data_dir=tmp_path, secrets=[OPENAI_KEY], transport=_transport(handler))
+    try:
+        result = _settle(hub, "owner", {"task": "summarize"})
+        assert result.payload["status"] == "succeeded"
+        assert result.payload["agent"] == "openai"
+        assert result.payload["result"] == "from-openai"
+        attempts = result.payload["attempts"]
+        assert [item["agent"] for item in attempts] == ["local", "openai"]
+        assert attempts[0]["error_code"] == "provider_error"
+        assert attempts[1]["status"] == "succeeded"
+    finally:
+        hub.close()
+
+
+def test_xai_profile_uses_the_account_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XAI_API_KEY_PERSONAL", "xai-personal-test-key")
+    monkeypatch.setenv("XAI_API_KEY_BUSINESS", "xai-business-test-key")
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers["authorization"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "from-xai"}}]})
+
+    personal = AgentProfile(
+        name="grok-personal",
+        provider="grok",
+        model="grok-4",
+        account="personal",
+        cost_tier=1,
+        api_key_env="XAI_API_KEY_PERSONAL",
+    )
+    business = AgentProfile(
+        name="grok-business",
+        provider="grok",
+        model="grok-4",
+        account="business",
+        cost_tier=4,
+        api_key_env="XAI_API_KEY_BUSINESS",
+    )
+    assert personal.base_url == "https://api.x.ai/v1"
+    hub = Hub.open(
+        sample_settings(agents=[_local(cost_tier=3), personal, business]),
+        data_dir=tmp_path,
+        secrets=["xai-personal-test-key"],
+        transport=_transport(handler),
+    )
+    try:
+        listed = hub.call("list_agents", "owner", {})
+        by_name = {item["name"]: item for item in listed.payload["agents"]}
+        assert by_name["grok-personal"]["runnable"] is True
+        assert by_name["grok-personal"]["mode"] == "push"
+        result = _settle(hub, "owner", {"task": "hi"})
+        assert result.payload["agent"] == "grok-personal"
+        assert result.payload["result"] == "from-xai"
+        assert seen["url"] == "https://api.x.ai/v1/chat/completions"
+        assert seen["auth"] == "Bearer xai-personal-test-key"
+        assert "xai-business-test-key" not in seen["auth"]
+    finally:
+        hub.close()
+
+
+def test_daily_budget_skips_a_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", OPENAI_KEY)
+    hosts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hosts.append(request.url.host)
+        return httpx.Response(200, json={"choices": [{"message": {"content": request.url.host}}]})
+
+    agents = [
+        _local(daily_request_budget=1),
+        _openai(),
+        _anthropic(),
+        _grok(),
+        _cursor(),
+    ]
+    hub = Hub.open(
+        sample_settings(agents=agents),
+        data_dir=tmp_path,
+        secrets=[OPENAI_KEY],
+        transport=_transport(handler),
+    )
+    try:
+        first = _settle(hub, "owner", {"task": "one"})
+        assert first.payload["agent"] == "local"
+        second = _settle(hub, "owner", {"task": "two"})
+        assert second.payload["agent"] == "openai"
+        assert second.payload["attempts"][0] == {
+            "agent": "local",
+            "provider": "openai_compatible",
+            "model": "llama3.1",
+            "status": "failed",
+            "error_code": "budget",
+        }
+        assert hosts == ["127.0.0.1", "api.openai.com"]
+        listed = {item["name"]: item for item in hub.call("list_agents", "owner", {}).payload["agents"]}
+        assert listed["local"]["requests_today"] == 1
+        assert listed["local"]["daily_request_budget"] == 1
+    finally:
+        hub.close()
+
+
+def test_queued_task_survives_a_restart(tmp_path: Path) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": "later"}}]})
+
+    hub = Hub.open(sample_settings(), data_dir=tmp_path, secrets=[], transport=_transport(handler))
+    queued = hub.call("delegate_task", "owner", {"task": "later"})
+    task_id = queued.payload["task_id"]
+    hub.close()
+    again = Hub.open(sample_settings(), data_dir=tmp_path, secrets=[], transport=_transport(handler))
+    try:
+        status = again.call("task_status", "owner", {"task_id": task_id})
+        assert status.payload["status"] == "queued"
+        assert again.run_once() is True
+        done = again.call("task_status", "owner", {"task_id": task_id})
+        assert done.payload["result"] == "later"
+    finally:
+        again.close()

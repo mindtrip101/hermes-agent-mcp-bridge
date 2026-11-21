@@ -31,17 +31,20 @@ MESSAGES = {
     "empty_completion": "The provider returned no text.",
     "not_found": "No task with that id was found.",
     "interrupted": "The provider call was interrupted.",
+    "budget": "That profile is over its daily request budget.",
+    "not_claimable": "That task is not waiting for a client to finish it.",
 }
 
 # Shown on list_agents and on a stub task. Fixed text, no request data.
 STUB_DETAIL = {
     "grok": (
-        "Grok Bot is an MCP client of this bridge, for a personal or business account. "
-        "It can call list_agents, delegate_task, and task_status. "
-        "The hub does not call Grok Bot outbound."
+        "This profile is an inbox for a connected Grok Bot. "
+        "Call complete_task with the task id and the result. "
+        "Set api_key_env on the profile to call the xAI API instead."
     ),
     "cursor": (
-        "Cursor and Copilot-style coding agents have no outbound adapter in this version. "
-        "The profile is reserved so config and routing can name it."
+        "This profile is an inbox for a connected coding agent. "
+        "Call complete_task with the task id and the result. "
+        "The hub does not call Cursor outbound."
     ),
 }
