@@ -4,7 +4,7 @@ test:
 	python -m pytest -q
 
 lint:
-	python -m ruff check hermes_agent_mcp_bridge tests
+	python -m ruff check hermes_agent_mcp_bridge tests apps
 
 scan:
 	python -m pytest -q tests/test_sanitization.py

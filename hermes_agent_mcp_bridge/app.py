@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import stat
 from collections.abc import AsyncIterator
@@ -12,7 +14,7 @@ from urllib.parse import urlsplit
 import httpx
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -24,7 +26,7 @@ from hermes_agent_mcp_bridge.hub.config import secret_values
 from hermes_agent_mcp_bridge.hub.service import Hub
 from hermes_agent_mcp_bridge.jobs import JobWorker
 from hermes_agent_mcp_bridge.keys import load_or_create
-from hermes_agent_mcp_bridge.mcp_rpc import handle_mcp
+from hermes_agent_mcp_bridge.mcp_rpc import handle_mcp, status_document
 from hermes_agent_mcp_bridge.oauth import (
     authorize_get,
     authorize_post,
@@ -37,6 +39,7 @@ from hermes_agent_mcp_bridge.oauth import (
 )
 from hermes_agent_mcp_bridge.runtime import Runtime
 from hermes_agent_mcp_bridge.scrub import install_scrubber
+from hermes_agent_mcp_bridge.status_page import render_status
 from hermes_agent_mcp_bridge.store import Store
 
 Role = str
@@ -157,6 +160,27 @@ def _routes(runtime: Runtime, role: Role) -> list[Route]:
     async def missing(_request: Request) -> Response:
         return Response(status_code=404)
 
+    async def status_json(request: Request) -> Response:
+        denied = _status_denied(request)
+        if denied is not None:
+            return denied
+        return JSONResponse(status_document(runtime), headers={"cache-control": "no-store"})
+
+    async def status_html(request: Request) -> Response:
+        denied = _status_denied(request)
+        if denied is not None:
+            return denied
+        page = render_status(status_document(runtime))
+        return HTMLResponse(
+            page,
+            headers={
+                "cache-control": "no-store",
+                "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+                "x-content-type-options": "nosniff",
+                "referrer-policy": "no-referrer",
+            },
+        )
+
     public = [
         Route("/healthz", endpoint=healthz, methods=["GET"]),
         Route("/.well-known/oauth-authorization-server", endpoint=metadata, methods=["GET"]),
@@ -170,6 +194,8 @@ def _routes(runtime: Runtime, role: Role) -> list[Route]:
         Route("/mcp", endpoint=do_mcp, methods=["POST"]),
         Route("/mcp", endpoint=mcp_method_not_allowed, methods=["GET"]),
         Route("/mcp", endpoint=mcp_delete, methods=["DELETE"]),
+        Route("/status.json", endpoint=status_json, methods=["GET"]),
+        Route("/status", endpoint=status_html, methods=["GET"]),
         Route("/oauth/authorize", endpoint=do_authorize_get, methods=["GET"]),
         Route("/oauth/authorize", endpoint=do_authorize_post, methods=["POST"]),
         Route("/{rest:path}", endpoint=missing, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]),
@@ -198,6 +224,30 @@ class HostGate:
             await _plain(send, 400)
             return
         await self.app(scope, receive, send)
+
+
+def _status_denied(request: Request) -> Response | None:
+    expected = os.environ.get("HERMES_BRIDGE_STATUS_TOKEN", "")
+    if not expected:
+        return None
+    header = request.headers.get("authorization", "")
+    prefix = "Bearer "
+    if not header.startswith(prefix) or header != header.strip() or "\n" in header or "\r" in header:
+        return _status_unauthorized()
+    given = header[len(prefix) :]
+    if not given:
+        return _status_unauthorized()
+    same = hmac.compare_digest(hashlib.sha256(given.encode()).digest(), hashlib.sha256(expected.encode()).digest())
+    if not same:
+        return _status_unauthorized()
+    return None
+
+
+def _status_unauthorized() -> Response:
+    return Response(
+        status_code=401,
+        headers={"www-authenticate": 'Bearer realm="bridge-status"', "cache-control": "no-store"},
+    )
 
 
 def load_owner_password(settings: Settings, *, generate: bool) -> tuple[str, bool]:

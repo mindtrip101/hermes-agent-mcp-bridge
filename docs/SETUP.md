@@ -138,4 +138,6 @@ curl -sS "https://bridge.example.com/.well-known/oauth-authorization-server"
 
 Replace the host with yours. An unauthenticated `POST` to `/mcp` must return `401` and a `WWW-Authenticate` header whose `resource_metadata` URL is the protected-resource document.
 
-Then, in the client, submit a short prompt through `ask_hermes` and poll `get_job` until `status` is `succeeded`. `bridge_status` should report `hermes_reachable: true` while the gateway is up.
+Then, in the client, submit a short prompt through `ask_hermes` and poll `get_job` until `status` is `succeeded`. `bridge_status` should report `hermes_reachable: true` while the gateway is up. `recent_calls` lists those tool calls without the prompt text.
+
+On the bridge machine, `GET /status` renders the same health data as HTML. Set `HERMES_BRIDGE_STATUS_TOKEN` before exposing that route past the machine, and send it as `Authorization: Bearer`. See [docs/CONFIGURATION.md](CONFIGURATION.md).

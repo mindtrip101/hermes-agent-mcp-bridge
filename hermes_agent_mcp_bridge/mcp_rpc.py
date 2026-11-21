@@ -56,6 +56,14 @@ def tools(runtime: Runtime) -> list[dict[str, Any]]:
             read_only=True,
             open_world=False,
         ),
+        _tool(
+            "recent_calls",
+            "List recent MCP tool calls. Returns tool name, outcome, and job id. Does not return prompts.",
+            {"limit": {"type": "integer", "minimum": 1, "maximum": 50}},
+            [],
+            read_only=True,
+            open_world=False,
+        ),
     ]
     if runtime.settings.limits.sync_ask_enabled:
         listed.append(
@@ -148,24 +156,48 @@ def _call(runtime: Runtime, owner: str, params: dict[str, Any]) -> dict[str, Any
     name = params.get("name")
     arguments = params.get("arguments") or {}
     if not isinstance(arguments, dict):
-        return _tool_error("invalid_input")
+        result = _tool_error("invalid_input")
+        _record(runtime, name, {}, result)
+        return result
     allowed = {item["name"] for item in tools(runtime)}
     if name not in allowed:
-        return _tool_error("invalid_input")
+        result = _tool_error("invalid_input")
+        _record(runtime, name, arguments, result)
+        return result
     if name == "bridge_status":
-        return _ok(_status_payload(runtime))
+        result = _ok(_status_payload(runtime))
+        _record(runtime, name, arguments, result)
+        return result
+    if name == "recent_calls":
+        result = _recent_calls(runtime, owner, arguments)
+        _record(runtime, name, arguments, result)
+        return result
     if name == "get_job":
-        if not runtime.limiter.allow(f"poll:{owner}", runtime.settings.limits.polls_per_minute, 60):
-            return _tool_error("rate_limited")
-        job_id = arguments.get("job_id")
-        if not isinstance(job_id, str):
-            return _tool_error("invalid_input")
-        job = runtime.store.get_job(job_id, owner)
-        if job is None:
-            return _tool_error("not_found")
-        return _ok(_job_payload(job))
+        result = _get_job(runtime, owner, arguments)
+        _record(runtime, name, arguments, result)
+        return result
     if name in {"list_agents", "delegate_task", "task_status"}:
-        return _hub_call(runtime, owner, name, arguments)
+        result = _hub_call(runtime, owner, name, arguments)
+        _record(runtime, name, arguments, result)
+        return result
+    result = _enqueue(runtime, owner, name, arguments)
+    _record(runtime, name, arguments, result)
+    return result
+
+
+def _get_job(runtime: Runtime, owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if not runtime.limiter.allow(f"poll:{owner}", runtime.settings.limits.polls_per_minute, 60):
+        return _tool_error("rate_limited")
+    job_id = arguments.get("job_id")
+    if not isinstance(job_id, str):
+        return _tool_error("invalid_input")
+    job = runtime.store.get_job(job_id, owner)
+    if job is None:
+        return _tool_error("not_found")
+    return _ok(_job_payload(job))
+
+
+def _enqueue(runtime: Runtime, owner: str, name: object, arguments: dict[str, Any]) -> dict[str, Any]:
     prompt = arguments.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         return _tool_error("invalid_input")
@@ -179,6 +211,64 @@ def _call(runtime: Runtime, owner: str, params: dict[str, Any]) -> dict[str, Any
     if name == "ask_hermes_sync":
         return _ok(_wait(runtime, owner, job_id))
     return _ok({"job_id": job_id, "status": "queued"})
+
+
+def _recent_calls(runtime: Runtime, owner: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if not runtime.limiter.allow(f"poll:{owner}", runtime.settings.limits.polls_per_minute, 60):
+        return _tool_error("rate_limited")
+    limit = arguments.get("limit", 20)
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
+        return _tool_error("invalid_input")
+    calls = [
+        {
+            "tool": item.tool_name,
+            "ok": item.ok,
+            "error_code": item.error_code,
+            "job_id": item.job_id,
+            "at": item.created_at,
+        }
+        for item in runtime.store.recent_tool_calls(limit)
+    ]
+    return _ok({"calls": calls})
+
+
+def _record(runtime: Runtime, name: object, arguments: dict[str, Any], result: dict[str, Any]) -> None:
+    structured = result.get("structuredContent")
+    payload = structured if isinstance(structured, dict) else {}
+    error = payload.get("error")
+    code = error.get("code") if isinstance(error, dict) else None
+    job_id = payload.get("job_id")
+    if not isinstance(job_id, str):
+        raw_job = arguments.get("job_id")
+        job_id = raw_job if isinstance(raw_job, str) else None
+    runtime.store.record_tool_call(
+        tool_name=_tool_label(name),
+        ok=not bool(result.get("isError")),
+        error_code=code if isinstance(code, str) else None,
+        job_id=job_id if isinstance(job_id, str) else None,
+    )
+
+
+def _tool_label(name: object) -> str:
+    if not isinstance(name, str):
+        return "invalid"
+    cleaned = "".join(ch for ch in name if ch.isprintable())[:64]
+    return cleaned or "invalid"
+
+
+def status_document(runtime: Runtime) -> dict[str, Any]:
+    """Public status view. Job ids and prompts are omitted."""
+    body = _status_payload(runtime)
+    body["calls"] = [
+        {
+            "tool": item.tool_name,
+            "ok": item.ok,
+            "error_code": item.error_code,
+            "at": item.created_at,
+        }
+        for item in runtime.store.recent_tool_calls(20)
+    ]
+    return body
 
 
 def _wait(runtime: Runtime, owner: str, job_id: str) -> dict[str, Any]:

@@ -566,7 +566,7 @@ def test_hub_tools_stay_unregistered_by_default(runtime: object) -> None:
 
     assert isinstance(runtime, Runtime)
     names = [item["name"] for item in tools(runtime)]
-    assert names == ["ask_hermes", "get_job", "bridge_status"]
+    assert names == ["ask_hermes", "get_job", "bridge_status", "recent_calls"]
 
 
 def test_tool_order_when_sync_and_hub_are_on(tmp_path: Path, fake: object) -> None:
@@ -582,6 +582,7 @@ def test_tool_order_when_sync_and_hub_are_on(tmp_path: Path, fake: object) -> No
             "ask_hermes",
             "get_job",
             "bridge_status",
+            "recent_calls",
             "ask_hermes_sync",
             "list_agents",
             "delegate_task",
@@ -628,7 +629,7 @@ def test_mcp_delegate_round_trip(tmp_path: Path, fake: object) -> None:
             client_id = register_client(http, [CHATGPT_REDIRECT])
             token = str(login(http, client_id=client_id, redirect_uri=CHATGPT_REDIRECT)[0]["access_token"])
             names = [item["name"] for item in _rpc(http, token, "tools/list").json()["result"]["tools"]]
-            assert names[:3] == ["ask_hermes", "get_job", "bridge_status"]
+            assert names[:4] == ["ask_hermes", "get_job", "bridge_status", "recent_calls"]
             assert names[-3:] == ["list_agents", "delegate_task", "task_status"]
             delegated = _rpc(
                 http,
