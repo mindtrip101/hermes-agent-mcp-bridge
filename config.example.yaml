@@ -64,13 +64,14 @@ data_dir: data
 subject: owner
 
 # Off by default. Set enabled to true to register list_agents, delegate_task,
-# and task_status. API keys are environment variables named here, never values.
+# task_status, and complete_task. API keys are environment variable names.
 # See the Agent hub section of README.md.
 hub:
   enabled: false
   policy: prefer_cheap
   strong_cost_tier: 3
   request_timeout_seconds: 60
+  max_wait_seconds: 30
   agents:
     - name: local
       provider: openai_compatible
@@ -97,16 +98,18 @@ hub:
       api_key_env: ANTHROPIC_API_KEY
     - name: grok-personal
       provider: grok
-      model: grok
+      model: grok-4
       account: personal
       tools_allowed: []
       cost_tier: 3
+      api_key_env: XAI_API_KEY_PERSONAL
     - name: grok-business
       provider: grok
-      model: grok
+      model: grok-4
       account: business
       tools_allowed: []
       cost_tier: 3
+      api_key_env: XAI_API_KEY_BUSINESS
     - name: cursor
       provider: cursor
       model: cursor-agent

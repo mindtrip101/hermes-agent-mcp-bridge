@@ -23,7 +23,7 @@ Tests use a fake Hermes backend. Do not point them at a live agent or add creden
 
 ## Runtime rules
 
-- New MCP tools need an explicit decision. The default is that the remote client can queue a prompt and read the result, and nothing else. The hub tools `list_agents`, `delegate_task`, and `task_status` are the exception, and only when `hub.enabled` is true. They send a task to a configured provider. They do not expose the Hermes agent's tools.
+- New MCP tools need an explicit decision. The default is that the remote client can queue a prompt and read the result, and nothing else. The hub tools `list_agents`, `delegate_task`, `task_status`, and `complete_task` are the exception, and only when `hub.enabled` is true. They queue a task for a configured provider or an inbox profile. They do not expose the Hermes agent's tools.
 - OAuth stays a public client: PKCE S256, no client secret, no `private_key_jwt` unless someone implements the assertion check and the tests for it.
 - State that has to survive a restart goes in SQLite. Do not keep refresh tokens or DCR clients only in memory.
 - The signing key stays on disk, mode `0600`, created on first run, and never committed.

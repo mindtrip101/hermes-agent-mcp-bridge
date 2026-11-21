@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 
 from hermes_agent_mcp_bridge.errors import HermesFailed
 from hermes_agent_mcp_bridge.hermes import HermesBackend
@@ -34,6 +35,12 @@ class JobWorker:
         self._retention_hours = retention_hours
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._hub_step: Callable[[], bool] | None = None
+
+    def set_hub_step(self, step: Callable[[], bool]) -> None:
+        """Run at most one queued hub task when no Hermes job is waiting."""
+
+        self._hub_step = step
 
     def start(self) -> None:
         self._store.recover()
@@ -53,10 +60,21 @@ class JobWorker:
     def _loop(self) -> None:
         while not self._stop.is_set():
             job = self._store.claim_next()
-            if job is None:
-                self._stop.wait(self._interval)
+            if job is not None:
+                self._run_one(job.job_id, job.prompt, job.backend_run_id)
                 continue
-            self._run_one(job.job_id, job.prompt, job.backend_run_id)
+            if self._run_hub_step():
+                continue
+            self._stop.wait(self._interval)
+
+    def _run_hub_step(self) -> bool:
+        step = self._hub_step
+        if step is None:
+            return False
+        try:
+            return bool(step())
+        except Exception:
+            return False
 
     def _run_one(self, job_id: str, prompt: str, backend_run_id: str | None) -> None:
         try:

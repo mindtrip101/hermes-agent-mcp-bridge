@@ -120,8 +120,9 @@ Cursor is expected to work through Dynamic Client Registration. A live Cursor se
 | `recent_calls` | Recent tool-call metadata (name, outcome, job id). Prompts are not returned. |
 | `ask_hermes_sync` | Optional. Waits up to `sync_timeout_seconds` (120 at most) and otherwise returns the job id so the client can poll. Off unless `limits.sync_ask_enabled` is true. |
 | `list_agents` | Optional. Profiles configured on the hub. Off unless `hub.enabled` is true. |
-| `delegate_task` | Optional. Hand a task to a profile and read the result. Off unless `hub.enabled` is true. |
-| `task_status` | Optional. Read one hub task. Off unless `hub.enabled` is true. |
+| `delegate_task` | Optional. Queue a hub task and return its id. Off unless `hub.enabled` is true. |
+| `task_status` | Optional. Read one hub task, including provider attempts. Off unless `hub.enabled` is true. |
+| `complete_task` | Optional. Claim an inbox task and store the client's result. Off unless `hub.enabled` is true. |
 
 Access tokens are short-lived RS256 JWTs. Refresh tokens rotate in SQLite. The signing key is created on first run at `data/signing-key.pem` with mode `0600`.
 
@@ -129,47 +130,49 @@ Access tokens are short-lived RS256 JWTs. Refresh tokens rotate in SQLite. The s
 
 The hub is a second set of tools on the same bridge. It stays off unless `hub.enabled` is true. Until then a client sees `ask_hermes`, `get_job`, `bridge_status`, and `recent_calls`.
 
-Turn it on when you want one MCP client, such as Grok Bot, to hand work to other models. Each model is an agent profile: a name, a provider, a model, a system prompt, the tools it may advertise, and a cost tier. Profiles share a task inbox in `data/hub.sqlite3`. One profile delegates a task, the hub calls the chosen provider, and the result comes back on that same tool call. `task_status` reads the stored row later.
+Turn it on when you want one MCP client, such as Grok Bot, to hand work to other models. Each model is an agent profile: a name, a provider, a model, a system prompt, the tools it may advertise, and a cost tier. Profiles share a task inbox in `data/hub.sqlite3`. `delegate_task` queues the work and returns a task id. The same worker that runs Hermes jobs calls the providers. `task_status` polls. Pass `wait_seconds` to wait up to `hub.max_wait_seconds` (30 by default) before that first reply.
 
 ```mermaid
 flowchart LR
   client[MCP client such as Grok Bot]
   bridge[Bridge]
   hub[Agent hub]
+  worker[Job worker]
   inbox[(Task inbox)]
   local[OpenAI-compatible local model]
-  hosted[OpenAI or Anthropic]
-  stubs[Grok and Cursor profiles]
-  client -->|list_agents, delegate_task, task_status| bridge --> hub
+  hosted[OpenAI, Anthropic, or xAI]
+  client -->|delegate_task and task_status| bridge --> hub
   hub --> inbox
+  worker --> hub
   hub -->|POST /chat/completions| local
   hub -->|HTTPS| hosted
-  hub -.->|listed, not called| stubs
+  client -->|complete_task| hub
 ```
 
 | Provider | What this version does |
 |---|---|
 | `openai_compatible` | Calls `{base_url}/chat/completions`. This is OpenAI, and it is also Ollama, vLLM, and llama.cpp. |
 | `anthropic` | Calls the Messages API at `{base_url}/v1/messages` with `anthropic-version: 2023-06-01`. |
-| `grok` | Stub. A personal or business Grok Bot connects to this bridge as an MCP client. The hub does not call Grok Bot. Set `account` to `personal` or `business` so the two profiles stay distinct. |
-| `cursor` | Stub. Reserved for a later local coding-agent adapter. `delegate_task` records the attempt as `unsupported` and makes no network call. |
+| `grok` | With `api_key_env` set, calls the xAI API at `{base_url}/chat/completions` (default `https://api.x.ai/v1`). Use `XAI_API_KEY_PERSONAL` and `XAI_API_KEY_BUSINESS` on separate profiles. With no key, the profile is an inbox: status `waiting`, finished by `complete_task`. |
+| `cursor` | Inbox profile. `delegate_task` leaves the task `waiting`. A connected client claims it with `complete_task` and writes the result. The hub does not call Cursor. |
 
 `tools_allowed` is stored on the profile and returned by `list_agents`. This version does not execute those tools and does not send them to the provider.
 
 ### Routing
 
-`delegate_task` takes `task`, and optionally `agent`, `from_agent`, and `strength` (`any` or `strong`).
+`delegate_task` takes `task`, and optionally `agent`, `from_agent`, `strength` (`any` or `strong`), and `wait_seconds`.
 
-- Name `agent` and that profile is used, including a stub. The cost tier is ignored.
-- Omit `agent` and the hub picks the runnable profile with the lowest `cost_tier`. Ties break by name.
-- Set `strength` to `strong` and the hub only considers runnable profiles whose `cost_tier` is at least `hub.strong_cost_tier` (3 by default). A local profile at tier 0 is skipped. Naming `agent` still overrides this.
+- Name `agent` and that profile is tried first. The cost tier is ignored for that first try.
+- Omit `agent` and the hub orders runnable profiles by `cost_tier`, then by name.
+- Set `strength` to `strong` and automatic routing only considers runnable profiles whose `cost_tier` is at least `hub.strong_cost_tier` (3 by default). A local profile at tier 0 is skipped. Naming `agent` still tries that profile first.
+- If a call errors or times out, the worker tries the next profile in that order and appends each try to `attempts` on the task. An explicit inbox profile (`cursor`, or `grok` with no API key) is not failed over; it stays `waiting` for `complete_task`.
 - `from_agent` must be another configured profile. It is excluded from automatic routing, and its name is added to the system prompt so the callee knows who delegated.
 - A profile cannot delegate to itself.
-- Stub profiles are never chosen automatically. A failed call is not retried against the next profile. Call `delegate_task` again with `strength: strong` or an explicit `agent` if you want a different model.
+- `daily_request_budget`, when set, is a UTC-day cap on provider calls for that profile. A profile at the cap is skipped and the attempt is recorded as `budget`. Omit the field for no cap.
 
 `cost_tier` is an integer from 0 through 5. Use 0 for a local model, 2 for a cheaper hosted model, and 3 or more for a model you only want when the task is marked strong.
 
-`delegate_task` blocks until the provider answers or `hub.request_timeout_seconds` elapses (60 by default, 120 at most). It shares the `asks_per_hour` limit with `ask_hermes`. `list_agents` and `task_status` share the `polls_per_minute` limit with `get_job`.
+`delegate_task` returns as soon as the task is queued, unless `wait_seconds` is set. The wait cannot exceed `hub.max_wait_seconds`. Each provider call still uses `hub.request_timeout_seconds` (60 by default, 120 at most). `delegate_task` and `complete_task` share the `asks_per_hour` limit with `ask_hermes`. `list_agents` and `task_status` share the `polls_per_minute` limit with `get_job`. A task left `running` across a restart is stored as `failed` with `interrupted`. A `queued` task is picked up again.
 
 ### Secrets
 
@@ -223,6 +226,8 @@ Install and start the bridge the same way as the quickstart above. The Hermes AP
    ```bash
    export OPENAI_API_KEY=replace-me
    export ANTHROPIC_API_KEY=replace-me
+   export XAI_API_KEY_PERSONAL=replace-me
+   export XAI_API_KEY_BUSINESS=replace-me
    .venv/bin/hermes-agent-mcp-bridge serve --config config.yaml
    ```
 
@@ -244,7 +249,19 @@ Install and start the bridge the same way as the quickstart above. The Hermes AP
    {"task": "Rewrite this function.", "agent": "anthropic", "from_agent": "local"}
    ```
 
-   The reply includes `task_id`, `agent`, `route_reason`, and `result` when the call succeeded. `isError` is true when the status is `failed` or `unsupported`. Poll `task_status` with that `task_id` to read the same row. A task left `running` across a restart is stored as `failed` with `interrupted`.
+   The reply includes `task_id` and `status`. `status` is `queued` until the worker finishes, or `succeeded` when `wait_seconds` was long enough. Poll `task_status` for `result` and `attempts`. `isError` is true when the status is `failed`.
+
+   To leave the task for a connected Grok Bot or coding client, name an inbox profile and then call `complete_task`:
+
+   ```json
+   {"task": "Look at this diff.", "agent": "cursor"}
+   ```
+
+   ```json
+   {"task_id": "task_…", "result": "The patch is safe to merge."}
+   ```
+
+   Omit `result` on `complete_task` to claim the task first (`status` becomes `claimed`). Send `result` to finish it.
 
 For a loopback-only experiment, set `server.dev_mode: true` and `server.issuer` to `http://127.0.0.1:8765` with no path and no trailing slash. Do not publish that port. The automated tests mock HTTP. They do not start a model server.
 

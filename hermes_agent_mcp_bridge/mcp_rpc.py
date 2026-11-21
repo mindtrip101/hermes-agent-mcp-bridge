@@ -176,7 +176,7 @@ def _call(runtime: Runtime, owner: str, params: dict[str, Any]) -> dict[str, Any
         result = _get_job(runtime, owner, arguments)
         _record(runtime, name, arguments, result)
         return result
-    if name in {"list_agents", "delegate_task", "task_status"}:
+    if name in {"list_agents", "delegate_task", "task_status", "complete_task"}:
         result = _hub_call(runtime, owner, name, arguments)
         _record(runtime, name, arguments, result)
         return result
@@ -386,6 +386,8 @@ def _ok(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _hub_tools(runtime: Runtime) -> list[dict[str, Any]]:
     max_chars = runtime.settings.hub.max_task_chars
+    max_output = runtime.settings.hub.max_output_chars
+    max_wait = runtime.settings.hub.max_wait_seconds
     return [
         _tool(
             "list_agents",
@@ -397,14 +399,16 @@ def _hub_tools(runtime: Runtime) -> list[dict[str, Any]]:
         ),
         _tool(
             "delegate_task",
-            "Give a task to an agent profile and return the result. "
+            "Queue a task for an agent profile and return its id. Poll task_status for the result. "
             "Omit agent to use the cheapest runnable profile. "
-            "Set strength to strong to skip profiles below the strong cost tier.",
+            "Set strength to strong to skip profiles below the strong cost tier. "
+            "Pass wait_seconds to wait up to that long before returning.",
             {
                 "task": {"type": "string", "minLength": 1, "maxLength": max_chars},
                 "agent": {"type": "string", "minLength": 1, "maxLength": 32},
                 "from_agent": {"type": "string", "minLength": 1, "maxLength": 32},
                 "strength": {"type": "string", "enum": ["any", "strong"]},
+                "wait_seconds": {"type": "number", "minimum": 0, "maximum": max_wait},
             },
             ["task"],
             read_only=False,
@@ -412,10 +416,21 @@ def _hub_tools(runtime: Runtime) -> list[dict[str, Any]]:
         ),
         _tool(
             "task_status",
-            "Read one hub task, including the result when it has finished.",
+            "Read one hub task, including the result and provider attempts when it has finished.",
             {"task_id": {"type": "string", "minLength": 4, "maxLength": 80}},
             ["task_id"],
             read_only=True,
+            open_world=False,
+        ),
+        _tool(
+            "complete_task",
+            "Claim an inbox task for a grok or cursor profile, and store the result when result is set.",
+            {
+                "task_id": {"type": "string", "minLength": 4, "maxLength": 80},
+                "result": {"type": "string", "minLength": 1, "maxLength": max_output},
+            },
+            ["task_id"],
+            read_only=False,
             open_world=False,
         ),
     ]
