@@ -74,6 +74,12 @@ The HTTP backend sends `Idempotency-Key` set to the bridge job id and does not t
 
 `HERMES_BRIDGE_SYNC_ASK` overrides `sync_ask_enabled`.
 
+## Status page
+
+`GET /status` renders a small HTML page. `GET /status.json` returns the same document as JSON. Both report version, queue depth, Hermes reachability, whether sync ask is enabled, and recent tool-call metadata. They do not include prompts or job ids. `recent_calls` on `POST /mcp` is the authenticated view and does include job ids.
+
+`HERMES_BRIDGE_STATUS_TOKEN`, when set, requires `Authorization: Bearer` on both routes. The value is not a config-file field. Leave it unset only when the listener is not reachable beyond the machine.
+
 ## redirects
 
 `private_schemes` defaults to `["cursor"]`. A private-use URI is accepted only when its authority contains a dot. HTTPS URIs and loopback HTTP URIs do not need to be listed. Set the list to `[]` to refuse private-use schemes.

@@ -12,7 +12,7 @@ Expose a local Hermes agent over remote MCP with OAuth 2.1 public-client auth (D
 
 Official Hermes [`mcp-serve`](https://hermes-agent.nousresearch.com/marketplace/mcp-serve) is local stdio only (`hermes mcp-serve`). This bridge exposes Hermes over remote MCP: streamable HTTP at `{issuer}/mcp`, with standards OAuth 2.1 public-client auth. There is no client secret. Clients register with Dynamic Client Registration or a Client ID Metadata Document, and the authorization-code flow uses PKCE S256. ChatGPT, Cursor, and other MCP clients can connect. The agent, its tools, and its credentials stay on loopback.
 
-The remote client queues a prompt and reads the reply (`ask_hermes`, `get_job`, `bridge_status`). It does not receive the agent's own tools.
+The remote client queues a prompt and reads the reply (`ask_hermes`, `get_job`, `bridge_status`, `recent_calls`). It does not receive the agent's own tools. `GET /status` is a small HTML view of the same health data and recent tool-call metadata.
 
 ## Architecture
 
@@ -117,6 +117,7 @@ Cursor is expected to work through Dynamic Client Registration. A live Cursor se
 | `ask_hermes` | Queue a prompt. Returns a job id. |
 | `get_job` | Read that job. The reply is included when the job has succeeded. |
 | `bridge_status` | Version, queue depth, and whether the local agent health check answered. |
+| `recent_calls` | Recent tool-call metadata (name, outcome, job id). Prompts are not returned. |
 | `ask_hermes_sync` | Optional. Waits up to `sync_timeout_seconds` (120 at most) and otherwise returns the job id so the client can poll. Off unless `limits.sync_ask_enabled` is true. |
 
 Access tokens are short-lived RS256 JWTs. Refresh tokens rotate in SQLite. The signing key is created on first run at `data/signing-key.pem` with mode `0600`.
@@ -138,11 +139,19 @@ Access tokens are short-lived RS256 JWTs. Refresh tokens rotate in SQLite. The s
 | Client registration | DCR and Client ID Metadata Documents, both persisted | DCR disabled. Static client id and secret | DCR. Clients stored in a JSON file |
 | Consent | Owner password. Optional separate listener that is not placed on a public funnel | Authorize auto-approves. The client secret is the gate | Owner code. Pending approvals and authorization codes are in memory |
 | Tokens | Short-lived RS256 access tokens, rotating refresh tokens in SQLite, RFC 9207 `iss` on the redirect | Confidential client plus PKCE | Access and refresh tokens. Rotating the owner secret invalidates tokens |
-| Tools | `ask_hermes`, `get_job`, `bridge_status`, optional bounded `ask_hermes_sync` | A synchronous ask tool (see that project's README) | `hermes_ask` and `hermes_status` |
+| Tools | `ask_hermes`, `get_job`, `bridge_status`, `recent_calls`, optional bounded `ask_hermes_sync` | A synchronous ask tool (see that project's README) | `hermes_ask` and `hermes_status` |
 | Agent API | Hermes 0.21 runs API on loopback, or a CLI adapter you configure | Hermes OpenAI-compatible HTTP API | Hermes CLI |
 | Exposure | Bind loopback. Tailscale Funnel/Serve is documented, including a tailnet-only consent port | A tunnel you configure | A tunnel you configure |
 
 Those projects solve the same shape of problem. Read their READMEs for their current behavior. The rows above describe the public documentation as of November 2026.
+
+## Companion apps
+
+Three private companion apps live under [apps/](apps/README.md). They are not published, and this repository does not submit them to a marketplace.
+
+- [Hermes PR Reviewer](apps/pr-reviewer/README.md) posts a risk-and-suggestion comment on a pull request.
+- [Bridge Doctor](apps/bridge-doctor/README.md) checks a bridge install from the command line or CI.
+- [Bridge Status Board](apps/status-board/README.md) is the `bridge_status` and `recent_calls` tools plus `GET /status`.
 
 ## Documentation
 

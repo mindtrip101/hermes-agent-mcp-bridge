@@ -55,6 +55,18 @@ class JobRecord:
     updated_at: int
 
 
+@dataclass
+class ToolCallRecord:
+    """Metadata for one MCP tool call. Prompts and arguments are not stored."""
+
+    call_id: int
+    tool_name: str
+    ok: bool
+    error_code: str | None
+    job_id: str | None
+    created_at: int
+
+
 class Store:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -147,6 +159,14 @@ class Store:
                     truncated INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS tool_calls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tool_name TEXT NOT NULL,
+                    ok INTEGER NOT NULL,
+                    error_code TEXT,
+                    job_id TEXT,
+                    created_at INTEGER NOT NULL
                 );
                 """
             )
@@ -506,6 +526,55 @@ class Store:
                 "DELETE FROM jobs WHERE status IN ('succeeded', 'failed') AND updated_at < ?",
                 (older_than,),
             )
+
+    def record_tool_call(
+        self,
+        *,
+        tool_name: str,
+        ok: bool,
+        error_code: str | None,
+        job_id: str | None,
+    ) -> None:
+        now = int(time.time())
+        with self._tx() as conn:
+            conn.execute(
+                """
+                INSERT INTO tool_calls (tool_name, ok, error_code, job_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (tool_name, 1 if ok else 0, error_code, job_id, now),
+            )
+            conn.execute(
+                """
+                DELETE FROM tool_calls WHERE id NOT IN (
+                    SELECT id FROM tool_calls ORDER BY id DESC LIMIT 200
+                )
+                """
+            )
+
+    def recent_tool_calls(self, limit: int) -> list[ToolCallRecord]:
+        bounded = max(1, min(limit, 50))
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT id, tool_name, ok, error_code, job_id, created_at
+                FROM tool_calls
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (bounded,),
+            ).fetchall()
+        return [
+            ToolCallRecord(
+                call_id=int(row["id"]),
+                tool_name=str(row["tool_name"]),
+                ok=bool(row["ok"]),
+                error_code=None if row["error_code"] is None else str(row["error_code"]),
+                job_id=None if row["job_id"] is None else str(row["job_id"]),
+                created_at=int(row["created_at"]),
+            )
+            for row in rows
+        ]
 
 
 def _revoke_family(conn: sqlite3.Connection, family_id: str, expires_at: int) -> None:
