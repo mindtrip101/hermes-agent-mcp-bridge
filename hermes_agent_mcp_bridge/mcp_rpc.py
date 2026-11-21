@@ -11,6 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from hermes_agent_mcp_bridge import SCOPE, SERVER_NAME, __version__
+from hermes_agent_mcp_bridge.hub.errors import HubError
 from hermes_agent_mcp_bridge.oauth import resource_metadata_url
 from hermes_agent_mcp_bridge.runtime import Runtime
 from hermes_agent_mcp_bridge.store import JobRecord
@@ -75,6 +76,8 @@ def tools(runtime: Runtime) -> list[dict[str, Any]]:
                 open_world=True,
             )
         )
+    if runtime.hub is not None:
+        listed.extend(_hub_tools(runtime))
     return listed
 
 
@@ -171,6 +174,10 @@ def _call(runtime: Runtime, owner: str, params: dict[str, Any]) -> dict[str, Any
         return result
     if name == "get_job":
         result = _get_job(runtime, owner, arguments)
+        _record(runtime, name, arguments, result)
+        return result
+    if name in {"list_agents", "delegate_task", "task_status"}:
+        result = _hub_call(runtime, owner, name, arguments)
         _record(runtime, name, arguments, result)
         return result
     result = _enqueue(runtime, owner, name, arguments)
@@ -377,8 +384,62 @@ def _ok(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _tool_error(code: str) -> dict[str, Any]:
-    payload = {"error": {"code": code, "message": _MESSAGES.get(code, "The request failed.")}}
+def _hub_tools(runtime: Runtime) -> list[dict[str, Any]]:
+    max_chars = runtime.settings.hub.max_task_chars
+    return [
+        _tool(
+            "list_agents",
+            "List agent profiles configured on the hub, and which ones can be called.",
+            {},
+            [],
+            read_only=True,
+            open_world=False,
+        ),
+        _tool(
+            "delegate_task",
+            "Give a task to an agent profile and return the result. "
+            "Omit agent to use the cheapest runnable profile. "
+            "Set strength to strong to skip profiles below the strong cost tier.",
+            {
+                "task": {"type": "string", "minLength": 1, "maxLength": max_chars},
+                "agent": {"type": "string", "minLength": 1, "maxLength": 32},
+                "from_agent": {"type": "string", "minLength": 1, "maxLength": 32},
+                "strength": {"type": "string", "enum": ["any", "strong"]},
+            },
+            ["task"],
+            read_only=False,
+            open_world=True,
+        ),
+        _tool(
+            "task_status",
+            "Read one hub task, including the result when it has finished.",
+            {"task_id": {"type": "string", "minLength": 4, "maxLength": 80}},
+            ["task_id"],
+            read_only=True,
+            open_world=False,
+        ),
+    ]
+
+
+def _hub_call(runtime: Runtime, owner: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if runtime.hub is None:
+        return _tool_error("invalid_input")
+    if name in {"list_agents", "task_status"}:
+        if not runtime.limiter.allow(f"poll:{owner}", runtime.settings.limits.polls_per_minute, 60):
+            return _tool_error("rate_limited")
+    elif not runtime.limiter.allow(f"ask:{owner}", runtime.settings.limits.asks_per_hour, 3600):
+        return _tool_error("rate_limited")
+    try:
+        result = runtime.hub.call(name, owner, arguments)
+    except HubError as exc:
+        return _tool_error(exc.code, exc.message)
+    body = _ok(result.payload)
+    body["isError"] = result.is_error
+    return body
+
+
+def _tool_error(code: str, message: str | None = None) -> dict[str, Any]:
+    payload = {"error": {"code": code, "message": message or _MESSAGES.get(code, "The request failed.")}}
     body = _ok(payload)
     body["isError"] = True
     return body

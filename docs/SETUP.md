@@ -117,7 +117,7 @@ Check `tailscale serve status` again after either command and confirm you did no
 1. Use the public URL that ends in `/mcp`. Example shape: `https://bridge.example.com/mcp`.
 2. Add it as a custom connector. Do not set a static `Authorization` header. Grok Bot discovers the OAuth metadata and runs the code flow with PKCE.
 3. When the browser opens the approval page, compare the client name and the redirect URI, then enter the owner password.
-4. Ask the connector to call `ask_hermes`, then `get_job` with the returned job id.
+4. Ask the connector to call `ask_hermes`, then `get_job` with the returned job id. When `hub.enabled` is true, the same connector can call `list_agents`, `delegate_task`, and `task_status`. See the Agent hub section of the README.
 
 Grok Bot is the only remote client this design has been used with. The steps above match that connector's OAuth discovery behavior. Labels in the product UI can change. This repository's tests do not open a live session.
 

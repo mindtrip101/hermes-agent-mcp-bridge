@@ -12,6 +12,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from hermes_agent_mcp_bridge.errors import ConfigError
+from hermes_agent_mcp_bridge.hub.config import HubSettings
 
 _LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
 
@@ -91,6 +92,7 @@ class Settings(BaseModel):
     tokens: TokenSettings = Field(default_factory=TokenSettings)
     limits: LimitSettings = Field(default_factory=LimitSettings)
     redirects: RedirectSettings = Field(default_factory=RedirectSettings)
+    hub: HubSettings = Field(default_factory=HubSettings)
     data_dir: str = "data"
     subject: str = "owner"
 
@@ -228,6 +230,9 @@ def _apply_env(raw: dict[str, object]) -> None:
         ("HERMES_BRIDGE_HERMES_ALLOW_NON_LOOPBACK", "hermes", "allow_non_loopback", "bool"),
         ("HERMES_BRIDGE_SYNC_ASK", "limits", "sync_ask_enabled", "bool"),
         ("HERMES_BRIDGE_PRIVATE_SCHEMES", "redirects", "private_schemes", "list"),
+        ("HERMES_BRIDGE_HUB_ENABLED", "hub", "enabled", "bool"),
+        ("HERMES_BRIDGE_HUB_STRONG_COST_TIER", "hub", "strong_cost_tier", "int"),
+        ("HERMES_BRIDGE_HUB_TIMEOUT_SECONDS", "hub", "request_timeout_seconds", "float"),
         ("HERMES_BRIDGE_DATA_DIR", "", "data_dir", "str"),
     ]
     for env_name, section, key, kind in mapping:
@@ -237,6 +242,11 @@ def _apply_env(raw: dict[str, object]) -> None:
         parsed: object
         if kind == "int":
             parsed = int(value)
+        elif kind == "float":
+            try:
+                parsed = float(value)
+            except ValueError as exc:
+                raise ConfigError("invalid numeric environment value") from exc
         elif kind == "bool":
             parsed = _bool(value)
         elif kind == "list":

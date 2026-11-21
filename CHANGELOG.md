@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Opt-in agent hub. Profiles can target an OpenAI-compatible endpoint (OpenAI, Ollama, vLLM, llama.cpp) or Anthropic. `delegate_task` uses the cheapest runnable profile unless the task sets `strength` to `strong` or names a profile. Grok Bot (personal and business) and Cursor profiles are listed and are not called. The tools `list_agents`, `delegate_task`, and `task_status` are registered only when `hub.enabled` is true.
 - MCP tool `recent_calls` records tool name, outcome, and job id. It does not store prompts.
 - `GET /status` and `GET /status.json` show bridge health and recent tool-call metadata, with job ids omitted. `HERMES_BRIDGE_STATUS_TOKEN` locks those routes when set.
 - Companion apps under `apps/`: PR reviewer, bridge doctor, and status board. They are private builds and are not submitted to a marketplace.

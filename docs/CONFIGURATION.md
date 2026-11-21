@@ -88,6 +88,42 @@ The HTTP backend sends `Idempotency-Key` set to the bridge job id and does not t
 
 Loopback matching ignores the port and treats `localhost`, `127.0.0.1`, and `::1` as the same host. HTTPS URIs match exactly.
 
+## hub
+
+Off unless `enabled` is true. When it is on, the bridge registers `list_agents`, `delegate_task`, and `task_status` in addition to the Hermes tools. `delegate_task` counts toward `asks_per_hour`. `list_agents` and `task_status` count toward `polls_per_minute`.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `enabled` | false | Register the hub tools. |
+| `policy` | `prefer_cheap` | The only policy. Lowest `cost_tier` among profiles the hub can call. |
+| `strong_cost_tier` | `3` | A task with `strength: strong` is routed only to runnable profiles at or above this tier. 0–5. |
+| `request_timeout_seconds` | `60` | 1–120. One provider call. There is no fallback if it fails. |
+| `max_task_chars` | `8000` | Reject a longer task. |
+| `max_output_chars` | `32000` | Truncate the stored reply. |
+
+`HERMES_BRIDGE_HUB_ENABLED`, `HERMES_BRIDGE_HUB_STRONG_COST_TIER`, `HERMES_BRIDGE_HUB_TIMEOUT_SECONDS`.
+
+Each entry in `agents` is a profile:
+
+| Field | Meaning |
+|---|---|
+| `name` | Lowercase slug, unique. This is the `agent` and `from_agent` value. |
+| `provider` | `openai_compatible`, `anthropic`, `grok`, or `cursor`. Only the first two are called. |
+| `model` | Model name sent to a runnable provider. Unused for `grok` and `cursor`. |
+| `system_prompt` | Optional. 4000 characters at most. Sent with the task. |
+| `tools_allowed` | Tool names the profile is allowed to advertise. This version does not execute tools and does not send the list to the provider. |
+| `cost_tier` | 0–5. Lower is cheaper. The cheap path picks the lowest tier. |
+| `base_url` | Required for `openai_compatible` (include `/v1`). Optional for Anthropic, default `https://api.anthropic.com`. Forbidden on stubs. |
+| `api_key_env` | Name of the environment variable that holds the key. Empty is allowed for a loopback or private OpenAI-compatible URL. Required for Anthropic and for any non-local OpenAI-compatible URL. |
+| `allow_private_base_url` | Allow an `http` URL whose host is a private or link-local IP. Use this for a model server on the LAN. |
+| `account` | `personal` or `business`, and only on `provider: grok`. |
+| `max_tokens` | 16–8192, default 1024. |
+| `token_param` | `max_tokens` (default, local servers), `max_completion_tokens` (some hosted OpenAI models), or `omit`. OpenAI-compatible profiles only. |
+
+`http` base URLs must be loopback, or a private IP with `allow_private_base_url`. `https` base URLs are allowed. The hub appends `/chat/completions` or `/v1/messages`. Do not put that path in `base_url`.
+
+A `grok` or `cursor` profile is listed by `list_agents` with `runnable: false`. `delegate_task` to that name records an `unsupported` task and does not make a network call.
+
 ## data_dir and subject
 
 `data_dir` (default `data`, env `HERMES_BRIDGE_DATA_DIR`) holds `signing-key.pem` and `bridge.sqlite3`. Moving it is a new bridge: old clients and tokens will not be found, and a new key will not verify old access tokens.

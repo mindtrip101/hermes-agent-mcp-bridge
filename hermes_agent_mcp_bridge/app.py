@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import httpx
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
@@ -21,6 +22,8 @@ from hermes_agent_mcp_bridge import __version__
 from hermes_agent_mcp_bridge.config import Settings
 from hermes_agent_mcp_bridge.errors import ConfigError
 from hermes_agent_mcp_bridge.hermes import CliHermes, HermesBackend, HttpHermes
+from hermes_agent_mcp_bridge.hub.config import secret_values
+from hermes_agent_mcp_bridge.hub.service import Hub
 from hermes_agent_mcp_bridge.jobs import JobWorker
 from hermes_agent_mcp_bridge.keys import load_or_create
 from hermes_agent_mcp_bridge.mcp_rpc import handle_mcp, status_document
@@ -49,6 +52,7 @@ def build_runtime(
     api_key: str = "",
     backend: HermesBackend | None = None,
     cimd_transport: object | None = None,
+    hub_transport: httpx.BaseTransport | None = None,
 ) -> Runtime:
     data = Path(settings.data_dir)
     data.mkdir(parents=True, exist_ok=True)
@@ -60,6 +64,7 @@ def build_runtime(
     secrets = [password]
     if api_key:
         secrets.append(api_key)
+    secrets.extend(secret_values(settings.hub))
     install_scrubber(secrets)
     runtime = Runtime(
         settings=settings,
@@ -81,6 +86,8 @@ def build_runtime(
         secrets=secrets,
         retention_hours=settings.limits.job_retention_hours,
     )
+    if settings.hub.enabled:
+        runtime.hub = Hub.open(settings.hub, data_dir=data, secrets=secrets, transport=hub_transport)
     return runtime
 
 
@@ -94,6 +101,8 @@ def create_app(runtime: Runtime, *, role: Role = "public") -> Starlette:
         finally:
             if role == "public" and runtime.worker is not None:
                 runtime.worker.stop()
+            if role == "public" and runtime.hub is not None:
+                runtime.hub.close()
 
     routes = _routes(runtime, role)
     app = Starlette(routes=routes, lifespan=lifespan)

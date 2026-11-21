@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from hermes_agent_mcp_bridge.config import Settings
 from hermes_agent_mcp_bridge.hermes import HermesBackend
+from hermes_agent_mcp_bridge.hub.service import Hub
 from hermes_agent_mcp_bridge.jobs import JobWorker
 from hermes_agent_mcp_bridge.store import Store
 
@@ -44,6 +45,7 @@ class Runtime:
     limiter: Limiter = field(default_factory=Limiter)
     cimd_transport: httpx.BaseTransport | None = None
     worker: JobWorker | None = None
+    hub: Hub | None = None
 
     def __repr__(self) -> str:
         return "Runtime(redacted)"
