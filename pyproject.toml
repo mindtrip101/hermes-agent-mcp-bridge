@@ -1,7 +1,7 @@
 [project]
 name = "hermes-agent-mcp-bridge"
 version = "0.1.0"
-description = "OAuth 2.1 MCP bridge that queues prompts to a local Hermes agent."
+description = "OAuth 2.1 MCP bridge to a local Hermes agent, with an optional multi-provider agent hub."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"

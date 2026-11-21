@@ -118,8 +118,134 @@ Cursor is expected to work through Dynamic Client Registration. A live Cursor se
 | `get_job` | Read that job. The reply is included when the job has succeeded. |
 | `bridge_status` | Version, queue depth, and whether the local agent health check answered. |
 | `ask_hermes_sync` | Optional. Waits up to `sync_timeout_seconds` (120 at most) and otherwise returns the job id so the client can poll. Off unless `limits.sync_ask_enabled` is true. |
+| `list_agents` | Optional. Profiles configured on the hub. Off unless `hub.enabled` is true. |
+| `delegate_task` | Optional. Hand a task to a profile and read the result. Off unless `hub.enabled` is true. |
+| `task_status` | Optional. Read one hub task. Off unless `hub.enabled` is true. |
 
 Access tokens are short-lived RS256 JWTs. Refresh tokens rotate in SQLite. The signing key is created on first run at `data/signing-key.pem` with mode `0600`.
+
+## Agent hub
+
+The hub is a second set of tools on the same bridge. It is off unless `hub.enabled` is true, so a client that connected before still sees `ask_hermes`, `get_job`, and `bridge_status` and nothing else.
+
+Turn it on when you want one MCP client, such as Grok Bot, to hand work to other models. Each model is an agent profile: a name, a provider, a model, a system prompt, the tools it may advertise, and a cost tier. Profiles share a task inbox in `data/hub.sqlite3`. One profile delegates a task, the hub calls the chosen provider, and the result comes back on that same tool call. `task_status` reads the stored row later.
+
+```mermaid
+flowchart LR
+  client[MCP client such as Grok Bot]
+  bridge[Bridge]
+  hub[Agent hub]
+  inbox[(Task inbox)]
+  local[OpenAI-compatible local model]
+  hosted[OpenAI or Anthropic]
+  stubs[Grok and Cursor profiles]
+  client -->|list_agents, delegate_task, task_status| bridge --> hub
+  hub --> inbox
+  hub -->|POST /chat/completions| local
+  hub -->|HTTPS| hosted
+  hub -.->|listed, not called| stubs
+```
+
+| Provider | What this version does |
+|---|---|
+| `openai_compatible` | Calls `{base_url}/chat/completions`. This is OpenAI, and it is also Ollama, vLLM, and llama.cpp. |
+| `anthropic` | Calls the Messages API at `{base_url}/v1/messages` with `anthropic-version: 2023-06-01`. |
+| `grok` | Stub. A personal or business Grok Bot connects to this bridge as an MCP client. The hub does not call Grok Bot. Set `account` to `personal` or `business` so the two profiles stay distinct. |
+| `cursor` | Stub. Reserved for a later local coding-agent adapter. `delegate_task` records the attempt as `unsupported` and makes no network call. |
+
+`tools_allowed` is stored on the profile and returned by `list_agents`. This version does not execute those tools and does not send them to the provider.
+
+### Routing
+
+`delegate_task` takes `task`, and optionally `agent`, `from_agent`, and `strength` (`any` or `strong`).
+
+- Name `agent` and that profile is used, including a stub. The cost tier is ignored.
+- Omit `agent` and the hub picks the runnable profile with the lowest `cost_tier`. Ties break by name.
+- Set `strength` to `strong` and the hub only considers runnable profiles whose `cost_tier` is at least `hub.strong_cost_tier` (3 by default). A local profile at tier 0 is skipped. Naming `agent` still overrides this.
+- `from_agent` must be another configured profile. It is excluded from automatic routing, and its name is added to the system prompt so the callee knows who delegated.
+- A profile cannot delegate to itself.
+- Stub profiles are never chosen automatically. A failed call is not retried against the next profile. Call `delegate_task` again with `strength: strong` or an explicit `agent` if you want a different model.
+
+`cost_tier` is an integer from 0 through 5. Use 0 for a local model, 2 for a cheaper hosted model, and 3 or more for a model you only want when the task is marked strong.
+
+`delegate_task` blocks until the provider answers or `hub.request_timeout_seconds` elapses (60 by default, 120 at most). It shares the `asks_per_hour` limit with `ask_hermes`. `list_agents` and `task_status` share the `polls_per_minute` limit with `get_job`.
+
+### Secrets
+
+Keys are environment variables. `api_key_env: OPENAI_API_KEY` means the process reads `OPENAI_API_KEY`. The config file holds the name. A loopback OpenAI-compatible server may leave `api_key_env` empty. Anthropic and any non-local OpenAI-compatible URL require a name. Copy `.env.example` to `.env` and leave `.env` untracked. The bridge scrubs key values it saw at startup, and values still present when a result is stored, out of the stored reply.
+
+### Run it against a local OpenAI-compatible model
+
+Install and start the bridge the same way as the quickstart above. The Hermes API key file is still required for `serve`, because the Hermes backend is still constructed. The hub does not send its tasks to Hermes. Hermes itself does not have to be running for a hub call to succeed. `ask_hermes` will fail until it is.
+
+1. Start a local server that speaks the OpenAI chat-completions API. Any one of these is enough:
+
+   ```bash
+   ollama serve
+   ```
+
+   ```bash
+   # vLLM, on this machine. The model id you pass here is the profile's model.
+   vllm serve MODEL_ID --host 127.0.0.1 --port 8000
+   ```
+
+   ```bash
+   # llama.cpp
+   llama-server -m model.gguf --host 127.0.0.1 --port 8080
+   ```
+
+2. In `config.yaml`, set `hub.enabled: true`. Point the `local` profile at that server and at a model it has loaded.
+
+   | Server | `base_url` |
+   |---|---|
+   | Ollama | `http://127.0.0.1:11434/v1` |
+   | vLLM | `http://127.0.0.1:8000/v1` |
+   | llama.cpp `llama-server` | `http://127.0.0.1:8080/v1` |
+
+   `base_url` is the API root. The hub appends `/chat/completions`. Leave `api_key_env` empty for these loopback URLs. `token_param` stays `max_tokens`, which is what these servers expect. For a hosted OpenAI model that rejects `max_tokens`, set `token_param: max_completion_tokens` on that profile.
+
+3. A model server on another machine on the LAN, such as vLLM on a DGX Spark, is the same shape with a private address and the extra flag:
+
+   ```yaml
+   - name: spark
+     provider: openai_compatible
+     model: local-model
+     cost_tier: 0
+     base_url: http://192.168.1.20:8000/v1
+     allow_private_base_url: true
+   ```
+
+   `http` to a public address is refused. A hostname on `http` is refused. Use an IP, or use `https`.
+
+4. Export keys only for profiles you will actually call. A missing Anthropic key does not stop the process. The local profile does not need one.
+
+   ```bash
+   export OPENAI_API_KEY=replace-me
+   export ANTHROPIC_API_KEY=replace-me
+   .venv/bin/hermes-agent-mcp-bridge serve --config config.yaml
+   ```
+
+5. Connect a client as in the quickstart, then call the tools. Omit `agent` and the tier-0 local profile is chosen.
+
+   ```json
+   {"task": "Summarize these notes in three sentences."}
+   ```
+
+   Mark a task that should skip the local model:
+
+   ```json
+   {"task": "Check this patch for a race.", "strength": "strong"}
+   ```
+
+   Hand a task from one profile to another:
+
+   ```json
+   {"task": "Rewrite this function.", "agent": "anthropic", "from_agent": "local"}
+   ```
+
+   The reply includes `task_id`, `agent`, `route_reason`, and `result` when the call succeeded. `isError` is true when the status is `failed` or `unsupported`. Poll `task_status` with that `task_id` to read the same row. A task left `running` across a restart is stored as `failed` with `interrupted`.
+
+For a loopback-only experiment, set `server.dev_mode: true` and `server.issuer` to `http://127.0.0.1:8765` with no path and no trailing slash. Do not publish that port. The automated tests mock HTTP. They do not start a model server.
 
 ## Clients
 
@@ -170,7 +296,7 @@ python -m venv .venv
 .venv/bin/pytest -q
 ```
 
-The tests use an in-memory Hermes double. They do not contact a live agent or a live chat client. CI is [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (Python 3.12, ruff, pytest, gitleaks).
+The tests use an in-memory Hermes double and, for the hub, `httpx.MockTransport`. They do not contact a live agent, a live model, or a live chat client. CI is [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (Python 3.12, ruff, pytest, gitleaks).
 
 ## License
 
@@ -178,4 +304,4 @@ MIT. See [LICENSE](LICENSE). The Python dependencies used here (`cryptography`, 
 
 ## Trademarks
 
-Grok, Grok Bot, ChatGPT, OpenAI, Claude, Anthropic, Cursor, Tailscale, Hermes, and Nous are trademarks of their respective owners. This project is not affiliated with, endorsed by, or sponsored by those owners.
+Grok, Grok Bot, ChatGPT, OpenAI, Claude, Anthropic, Cursor, GitHub Copilot, NVIDIA, Tailscale, Hermes, and Nous are trademarks of their respective owners. This project is not affiliated with, endorsed by, or sponsored by those owners.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Opt-in agent hub. Profiles can target an OpenAI-compatible endpoint (OpenAI, Ollama, vLLM, llama.cpp) or Anthropic. `delegate_task` uses the cheapest runnable profile unless the task sets `strength` to `strong` or names a profile. Grok Bot (personal and business) and Cursor profiles are listed and are not called. The tools `list_agents`, `delegate_task`, and `task_status` are registered only when `hub.enabled` is true.
+
 ## 0.1.0
 
 Initial public release.

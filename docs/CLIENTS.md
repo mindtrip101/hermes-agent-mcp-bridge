@@ -41,6 +41,8 @@ Tested, as a custom connector against the private deployment this design comes f
 3. Complete the consent page with the owner password.
 4. The first tool call may be what opens the browser, depending on the product version.
 
+A personal account and a business account are two connectors pointed at this bridge. They are not outbound providers. With the hub enabled, either connector can delegate a task to a configured OpenAI-compatible or Anthropic profile. The hub does not call Grok Bot back.
+
 If the connector reports an unknown client after you move the process or change `data_dir`, the old dynamic client id was stored in the previous database. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ## ChatGPT

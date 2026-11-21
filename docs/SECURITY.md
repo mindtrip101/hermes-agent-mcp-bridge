@@ -57,8 +57,9 @@ The MCP server registers only:
 - `get_job`
 - `bridge_status`
 - `ask_hermes_sync` when `limits.sync_ask_enabled` is true
+- `list_agents`, `delegate_task`, and `task_status` when `hub.enabled` is true
 
-Any other `tools/call` name returns an error result. Job ids are unguessable, and `get_job` only returns a job for the token's subject. There is one subject, `owner` by default.
+Any other `tools/call` name returns an error result. Job ids and task ids are unguessable. `get_job` and `task_status` only return a row for the token's subject. There is one subject, `owner` by default.
 
 Prompts are length-capped. The queue is depth-capped. Asks are rate-limited. One worker runs one agent call at a time. Output stored in SQLite is truncated to `max_output_chars`. Job rows are deleted after `job_retention_hours`.
 
@@ -98,3 +99,11 @@ Funnel publishes the public port. That includes:
 It does not include the Hermes port, the signing key, or the database, unless you bind those on a published port yourself. Do not.
 
 A tailnet-only consent port should appear in `tailscale serve status` and not in the funnel configuration.
+
+## Agent hub
+
+The hub is off unless `hub.enabled` is true. `delegate_task` sends the task text and the profile's system prompt to that profile's provider. A loopback OpenAI-compatible URL stays on the machine. Any other URL sends the prompt off the machine. API keys are read from the environment variables named on the profiles. They are not config fields, and a provider response that echoes a key is scrubbed before it is stored.
+
+Grok Bot and Cursor profiles are not called. The hub does not give the remote client the Hermes agent's tools, and it does not give a provider the bridge's OAuth tokens or the Hermes API key.
+
+Task rows live in `data/hub.sqlite3` (mode `0600`). `delegate_task` counts toward `limits.asks_per_hour`. `list_agents` and `task_status` count toward `limits.polls_per_minute`. A running task that is still open after a restart is marked failed with `interrupted`. The hub does not retry it.

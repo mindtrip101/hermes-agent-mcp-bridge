@@ -62,3 +62,53 @@ redirects:
 
 data_dir: data
 subject: owner
+
+# Off by default. Set enabled to true to register list_agents, delegate_task,
+# and task_status. API keys are environment variables named here, never values.
+# See the Agent hub section of README.md.
+hub:
+  enabled: false
+  policy: prefer_cheap
+  strong_cost_tier: 3
+  request_timeout_seconds: 60
+  agents:
+    - name: local
+      provider: openai_compatible
+      model: llama3.1
+      system_prompt: You are a local assistant. Answer briefly.
+      tools_allowed: []
+      cost_tier: 0
+      base_url: http://127.0.0.1:11434/v1
+    - name: openai
+      provider: openai_compatible
+      model: gpt-4o-mini
+      system_prompt: ""
+      tools_allowed: []
+      cost_tier: 2
+      base_url: https://api.openai.com/v1
+      api_key_env: OPENAI_API_KEY
+      token_param: max_completion_tokens
+    - name: anthropic
+      provider: anthropic
+      model: claude-sonnet-4-5
+      system_prompt: ""
+      tools_allowed: []
+      cost_tier: 3
+      api_key_env: ANTHROPIC_API_KEY
+    - name: grok-personal
+      provider: grok
+      model: grok
+      account: personal
+      tools_allowed: []
+      cost_tier: 3
+    - name: grok-business
+      provider: grok
+      model: grok
+      account: business
+      tools_allowed: []
+      cost_tier: 3
+    - name: cursor
+      provider: cursor
+      model: cursor-agent
+      tools_allowed: []
+      cost_tier: 2
